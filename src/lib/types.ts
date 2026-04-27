@@ -88,6 +88,7 @@ export interface ColorProfile {
   color_analysis_summary: string | null
   analysis_photo_urls: string | null
   shade_notes: string | null
+  brand_shade_table: string | null
   updated_at: string
 }
 
