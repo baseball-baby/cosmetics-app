@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDb, UPLOADS_DIR_PATH } from '@/lib/db'
+import { supabase } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
-import fs from 'fs'
-import path from 'path'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -10,7 +8,6 @@ export async function POST(req: NextRequest) {
   const userId = req.cookies.get('cosmetics_user')?.value
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = getDb()
   const body = await req.json()
   const { photos, shade_notes } = body as {
     photos: Array<{ url: string; shades: string }>
@@ -26,26 +23,21 @@ export async function POST(req: NextRequest) {
 
   const validPhotos: Array<{ url: string; shades: string }> = []
   for (const photo of photos) {
-    try {
-      const filename = photo.url.replace(/^\/uploads\//, '')
-      const filePath = path.join(UPLOADS_DIR_PATH, filename)
-      if (fs.existsSync(filePath)) {
-        const imageData = fs.readFileSync(filePath)
-        const base64 = imageData.toString('base64')
-        const ext = photo.url.split('.').pop()?.toLowerCase()
-        const mediaType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
-        content.push({
-          type: 'image',
-          source: { type: 'base64', media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/webp', data: base64 },
-        })
-        validPhotos.push(photo)
-      }
-    } catch {}
+    if (photo.url && photo.url.startsWith('http')) {
+      content.push({
+        type: 'image',
+        source: { type: 'url', url: photo.url },
+      })
+      validPhotos.push(photo)
+    }
+  }
+
+  if (validPhotos.length === 0) {
+    return NextResponse.json({ error: 'No valid photos' }, { status: 400 })
   }
 
   const hasShades = validPhotos.some((p) => p.shades && p.shades.trim())
 
-  // Build shade notes context if re-analyzing with user shade notes
   const shadeNotesContext = shade_notes && shade_notes.length > 0
     ? `\n\n使用者已提供以下底妝試色記錄供參考：\n${shade_notes.map((n) => `- ${n.shade}：${n.verdicts.join('、')}`).join('\n')}`
     : ''
@@ -123,40 +115,35 @@ ${photoDescriptions}${shadeNotesContext}
     }
   }
 
-  db.prepare(`
-    INSERT INTO user_profiles (
-      user_id, undertone, undertone_confidence, depth,
-      color_analysis_summary, suitable_foundation_shades, analysis_photo_urls,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
-    ON CONFLICT(user_id) DO UPDATE SET
-      undertone = excluded.undertone,
-      undertone_confidence = excluded.undertone_confidence,
-      depth = excluded.depth,
-      color_analysis_summary = excluded.color_analysis_summary,
-      suitable_foundation_shades = excluded.suitable_foundation_shades,
-      analysis_photo_urls = excluded.analysis_photo_urls,
-      updated_at = excluded.updated_at
-  `).run(
-    userId,
-    result.undertone,
-    result.undertone_confidence,
-    result.depth,
-    result.color_analysis_summary,
-    JSON.stringify(suitableFoundation),
-    JSON.stringify(photoUrls)
-  )
+  await supabase.from('user_profiles').upsert({
+    user_id: userId,
+    undertone: result.undertone,
+    undertone_confidence: result.undertone_confidence,
+    depth: result.depth,
+    color_analysis_summary: result.color_analysis_summary,
+    suitable_foundation_shades: JSON.stringify(suitableFoundation),
+    analysis_photo_urls: JSON.stringify(photoUrls),
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' })
 
-  db.prepare("UPDATE shade_analyses SET is_current = 0 WHERE cosmetic_id IS NULL AND user_id = ?").run(userId)
+  await supabase
+    .from('shade_analyses')
+    .update({ is_current: 0 })
+    .is('cosmetic_id', null)
+    .eq('user_id', userId)
 
   for (const analysis of result.shade_analyses) {
     const photoIdx = validPhotos.findIndex((p) => p.shades && p.shades.includes(analysis.shade))
     const photoUrl = photoIdx >= 0 ? validPhotos[photoIdx]?.url : validPhotos[0]?.url
 
-    db.prepare(`
-      INSERT INTO shade_analyses (user_id, cosmetic_id, photo_url, ai_verdict, ai_analysis, is_current)
-      VALUES (?, NULL, ?, ?, ?, 1)
-    `).run(userId, photoUrl || null, analysis.verdict, analysis.analysis)
+    await supabase.from('shade_analyses').insert({
+      user_id: userId,
+      cosmetic_id: null,
+      photo_url: photoUrl || null,
+      ai_verdict: analysis.verdict,
+      ai_analysis: analysis.analysis,
+      is_current: 1,
+    })
   }
 
   return NextResponse.json({

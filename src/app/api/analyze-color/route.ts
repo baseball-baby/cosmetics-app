@@ -1,40 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDb } from '@/lib/db'
+import { supabase } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
-import fs from 'fs'
-import path from 'path'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: NextRequest) {
-  const db = getDb()
-  const { cosmetic_id } = await req.json()
+  const userId = req.cookies.get('cosmetics_user')?.value
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { cosmetic_id } = await req.json()
   if (!cosmetic_id) return NextResponse.json({ error: 'cosmetic_id required' }, { status: 400 })
 
-  const cosmetic = db.prepare('SELECT * FROM cosmetics WHERE id = ?').get(Number(cosmetic_id)) as Record<string, unknown> | undefined
+  const { data: cosmetic } = await supabase
+    .from('cosmetics')
+    .select('*')
+    .eq('id', Number(cosmetic_id))
+    .eq('user_id', userId)
+    .maybeSingle()
+
   if (!cosmetic) return NextResponse.json({ error: 'Cosmetic not found' }, { status: 404 })
 
-  const profile = db.prepare('SELECT * FROM color_profile WHERE id = 1').get() as Record<string, unknown> | undefined
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle()
 
   type ContentBlock = Anthropic.TextBlockParam | Anthropic.ImageBlockParam
-
   const content: ContentBlock[] = []
 
-  if (cosmetic.photo_url) {
-    try {
-      const filePath = path.join(process.cwd(), 'public', cosmetic.photo_url as string)
-      if (fs.existsSync(filePath)) {
-        const imageData = fs.readFileSync(filePath)
-        const base64 = imageData.toString('base64')
-        const ext = (cosmetic.photo_url as string).split('.').pop()?.toLowerCase()
-        const mediaType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
-        content.push({
-          type: 'image',
-          source: { type: 'base64', media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/webp', data: base64 },
-        })
-      }
-    } catch {}
+  if (cosmetic.photo_url && cosmetic.photo_url.startsWith('http')) {
+    content.push({
+      type: 'image',
+      source: { type: 'url', url: cosmetic.photo_url },
+    })
   }
 
   const categoryHint = getCategoryHint(cosmetic.category as string)
@@ -83,18 +82,24 @@ ${categoryHint}
     result = { verdict: '不適合', reason: text }
   }
 
-  db.prepare(`
-    UPDATE cosmetics SET color_verdict = ?, color_verdict_reason = ? WHERE id = ?
-  `).run(result.verdict, result.reason, Number(cosmetic_id))
+  await supabase.from('cosmetics').update({
+    color_verdict: result.verdict,
+    color_verdict_reason: result.reason,
+  }).eq('id', Number(cosmetic_id))
 
-  db.prepare(`
-    UPDATE shade_analyses SET is_current = 0 WHERE cosmetic_id = ?
-  `).run(Number(cosmetic_id))
+  await supabase
+    .from('shade_analyses')
+    .update({ is_current: 0 })
+    .eq('cosmetic_id', Number(cosmetic_id))
 
-  db.prepare(`
-    INSERT INTO shade_analyses (cosmetic_id, photo_url, ai_verdict, ai_analysis, is_current)
-    VALUES (?, ?, ?, ?, 1)
-  `).run(Number(cosmetic_id), cosmetic.photo_url || null, result.verdict, result.reason)
+  await supabase.from('shade_analyses').insert({
+    user_id: userId,
+    cosmetic_id: Number(cosmetic_id),
+    photo_url: cosmetic.photo_url || null,
+    ai_verdict: result.verdict,
+    ai_analysis: result.reason,
+    is_current: 1,
+  })
 
   return NextResponse.json({ verdict: result.verdict, reason: result.reason })
 }

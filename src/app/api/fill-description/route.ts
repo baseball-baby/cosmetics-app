@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import fs from 'fs'
-import path from 'path'
-import { UPLOADS_DIR_PATH } from '@/lib/db'
+import { supabase } from '@/lib/db'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -36,9 +34,14 @@ async function downloadImage(url: string): Promise<string | null> {
     const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg'
     const buffer = await res.arrayBuffer()
     const filename = `autofetch_${Date.now()}.${ext}`
-    const filePath = path.join(UPLOADS_DIR_PATH, filename)
-    fs.writeFileSync(filePath, Buffer.from(buffer))
-    return `/uploads/${filename}`
+
+    const { error } = await supabase.storage
+      .from('uploads')
+      .upload(filename, Buffer.from(buffer), { contentType, upsert: false })
+
+    if (error) return null
+    const { data } = supabase.storage.from('uploads').getPublicUrl(filename)
+    return data.publicUrl
   } catch {
     return null
   }
@@ -68,7 +71,6 @@ export async function POST(req: NextRequest) {
       max_tokens: 400,
       messages: [{ role: 'user', content: prompt }],
     }),
-    // Only search for image if user hasn't uploaded photos
     !hasPhotos ? searchProductImage(brand, name) : Promise.resolve(null),
   ])
 
@@ -81,7 +83,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Parse failed', raw: text }, { status: 500 })
   }
 
-  // Download image if found
   let photoUrl: string | null = null
   if (imageUrl) {
     photoUrl = await downloadImage(imageUrl)

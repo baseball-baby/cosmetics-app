@@ -1,12 +1,23 @@
 import { notFound } from 'next/navigation'
-import { getDb } from '@/lib/db'
+import { cookies } from 'next/headers'
+import { supabase } from '@/lib/db'
 import { Cosmetic } from '@/lib/types'
 import CosmeticForm from '@/components/CosmeticForm'
 import Link from 'next/link'
 
-export default function EditCosmeticPage({ params }: { params: { id: string } }) {
-  const db = getDb()
-  const cosmetic = db.prepare('SELECT * FROM cosmetics WHERE id = ?').get(Number(params.id)) as Cosmetic | undefined
+export default async function EditCosmeticPage({ params }: { params: { id: string } }) {
+  const cookieStore = cookies()
+  const userId = cookieStore.get('cosmetics_user')?.value
+
+  if (!userId) notFound()
+
+  const { data: cosmetic } = await supabase
+    .from('cosmetics')
+    .select('*')
+    .eq('id', Number(params.id))
+    .eq('user_id', userId)
+    .maybeSingle()
+
   if (!cosmetic) notFound()
 
   return (
@@ -16,7 +27,7 @@ export default function EditCosmeticPage({ params }: { params: { id: string } })
         <h1 className="text-xl font-bold text-nude-900">編輯化妝品</h1>
       </div>
       <div className="card p-6">
-        <CosmeticForm initial={cosmetic} />
+        <CosmeticForm initial={cosmetic as Cosmetic} />
       </div>
     </div>
   )

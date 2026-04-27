@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { getDb } from '@/lib/db'
+import { supabase } from '@/lib/db'
 import type { ShadeNote } from '@/lib/types'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -65,9 +65,14 @@ export async function POST(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as { question?: string; type?: string; category?: string; budget?: number }
-  const db = getDb()
-  const profile = db.prepare('SELECT * FROM user_profiles WHERE user_id = ?').get(userId) as UserProfile | undefined
-  const profileContext = buildProfileContext(profile)
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  const profileContext = buildProfileContext(profile as UserProfile | undefined)
 
   let shadeNotesContext = ''
   if (profile?.shade_notes) {
@@ -139,8 +144,14 @@ ${searchContext || '（無搜尋結果）'}
   const { question } = body
   if (!question?.trim()) return NextResponse.json({ error: 'question required' }, { status: 400 })
 
-  const allFeedback = db.prepare('SELECT question, ai_answer, user_correction FROM advice_feedback WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').all(userId) as FeedbackRow[]
-  const relevant = pickRelevantFeedback(question, allFeedback)
+  const { data: allFeedback } = await supabase
+    .from('advice_feedback')
+    .select('question, ai_answer, user_correction')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  const relevant = pickRelevantFeedback(question, (allFeedback || []) as FeedbackRow[])
   const feedbackContext = relevant.length > 0
     ? '\n\n過去的建議修正（請根據這些修正調整你的回答）：\n' +
       relevant.map((r) => {
@@ -202,8 +213,13 @@ export async function PUT(req: NextRequest) {
   if (!question || !user_correction?.trim()) {
     return NextResponse.json({ error: 'question and user_correction required' }, { status: 400 })
   }
-  const db = getDb()
-  db.prepare('INSERT INTO advice_feedback (user_id, question, ai_answer, user_correction) VALUES (?, ?, ?, ?)')
-    .run(userId, question, JSON.stringify(ai_answer), user_correction.trim())
+
+  await supabase.from('advice_feedback').insert({
+    user_id: userId,
+    question,
+    ai_answer: JSON.stringify(ai_answer),
+    user_correction: user_correction.trim(),
+  })
+
   return NextResponse.json({ ok: true })
 }

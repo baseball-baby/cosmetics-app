@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDb } from '@/lib/db'
+import { supabase } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: NextRequest) {
-  const db = getDb()
+  const userId = req.cookies.get('cosmetics_user')?.value
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { situation, extra_notes } = await req.json()
 
-  const profile = db.prepare('SELECT * FROM color_profile WHERE id = 1').get() as Record<string, unknown>
-  const cosmetics = db.prepare('SELECT * FROM cosmetics ORDER BY category').all() as Array<Record<string, unknown>>
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle()
 
-  const inventoryText = cosmetics
+  const { data: cosmetics } = await supabase
+    .from('cosmetics')
+    .select('*')
+    .eq('user_id', userId)
+    .order('category')
+
+  const inventoryText = (cosmetics || [])
     .map(
       (c) =>
         `[ID:${c.id}] ${c.brand} ${c.name}（${c.category}）${c.shade_name ? `色號：${c.shade_name}` : ''}${c.color_verdict ? ` 適色：${c.color_verdict}` : ''}`
@@ -72,7 +83,7 @@ ${inventoryText || '（庫存為空）'}
     return NextResponse.json({ error: 'AI analysis failed', raw: text }, { status: 500 })
   }
 
-  const cosmeticMap = new Map(cosmetics.map((c) => [Number(c.id), c]))
+  const cosmeticMap = new Map((cosmetics || []).map((c) => [Number(c.id), c]))
   const enriched = result.combinations.map((combo) => ({
     ...combo,
     products: combo.products

@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDb } from '@/lib/db'
+import { supabase } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
-import fs from 'fs'
-import path from 'path'
-import { UPLOADS_DIR_PATH } from '@/lib/db'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -20,14 +17,17 @@ const CATEGORY_TAG_HINTS: Record<string, string> = {
 }
 
 async function autoTag(id: number, userId: string, brand: string, name: string, category: string, shade_name: string | null, official_description: string | null, official_positioning: string | null): Promise<string[]> {
-  const db = getDb()
-  const existingRows = db.prepare(
-    'SELECT sub_tags FROM cosmetics WHERE category = ? AND id != ? AND user_id = ? AND sub_tags IS NOT NULL'
-  ).all(category, id, userId) as { sub_tags: string }[]
+  const { data: existingRows } = await supabase
+    .from('cosmetics')
+    .select('sub_tags')
+    .eq('category', category)
+    .neq('id', id)
+    .eq('user_id', userId)
+    .not('sub_tags', 'is', null)
 
-  const existingTags = existingRows
-    .flatMap((r) => { try { return JSON.parse(r.sub_tags) as string[] } catch { return [] } })
-    .filter((v, i, arr) => arr.indexOf(v) === i)
+  const existingTags = (existingRows || [])
+    .flatMap((r: { sub_tags: string }) => { try { return JSON.parse(r.sub_tags) as string[] } catch { return [] } })
+    .filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i)
 
   const hints = CATEGORY_TAG_HINTS[category] || '相關特性'
   const existingLine = existingTags.length > 0
@@ -61,8 +61,15 @@ ${existingLine}規則：優先沿用已有標籤，語意相同或高度相近�
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const userId = _req.cookies.get('cosmetics_user')?.value
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const db = getDb()
-  const row = db.prepare('SELECT * FROM cosmetics WHERE id = ? AND user_id = ?').get(Number(params.id), userId)
+
+  const { data: row, error } = await supabase
+    .from('cosmetics')
+    .select('*')
+    .eq('id', Number(params.id))
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json(row)
 }
@@ -71,50 +78,47 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const userId = req.cookies.get('cosmetics_user')?.value
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = getDb()
-  const body = await req.json()
   const id = Number(params.id)
+  const body = await req.json()
 
   // Verify ownership
-  const existing = db.prepare('SELECT id FROM cosmetics WHERE id = ? AND user_id = ?').get(id, userId)
+  const { data: existing } = await supabase
+    .from('cosmetics')
+    .select('id')
+    .eq('id', id)
+    .eq('user_id', userId)
+    .maybeSingle()
+
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const photoUrls: string[] = body.photo_urls || (body.photo_url ? [body.photo_url] : [])
   const primaryPhoto = photoUrls[0] || null
 
-  db.prepare(`
-    UPDATE cosmetics SET
-      brand = ?, name = ?, category = ?, shade_name = ?, shade_description = ?,
-      official_description = ?, official_positioning = ?, personal_notes = ?,
-      expiry_date = ?, purchase_date = ?, price = ?, photo_url = ?, photo_urls = ?
-    WHERE id = ? AND user_id = ?
-  `).run(
-    body.brand,
-    body.name,
-    body.category,
-    body.shade_name || null,
-    body.shade_description || null,
-    body.official_description || null,
-    body.official_positioning || null,
-    body.personal_notes || null,
-    body.expiry_date || null,
-    body.purchase_date || null,
-    body.price ? Number(body.price) : null,
-    primaryPhoto,
-    photoUrls.length > 0 ? JSON.stringify(photoUrls) : null,
-    id,
-    userId
-  )
+  await supabase.from('cosmetics').update({
+    brand: body.brand,
+    name: body.name,
+    category: body.category,
+    shade_name: body.shade_name || null,
+    shade_description: body.shade_description || null,
+    official_description: body.official_description || null,
+    official_positioning: body.official_positioning || null,
+    personal_notes: body.personal_notes || null,
+    expiry_date: body.expiry_date || null,
+    purchase_date: body.purchase_date || null,
+    price: body.price ? Number(body.price) : null,
+    photo_url: primaryPhoto,
+    photo_urls: photoUrls.length > 0 ? JSON.stringify(photoUrls) : null,
+  }).eq('id', id).eq('user_id', userId)
 
   // Auto-tag (best-effort, always re-run on edit)
   try {
     const tags = await autoTag(id, userId, body.brand, body.name, body.category, body.shade_name || null, body.official_description || null, body.official_positioning || null)
     if (tags.length > 0) {
-      db.prepare('UPDATE cosmetics SET sub_tags = ? WHERE id = ?').run(JSON.stringify(tags), id)
+      await supabase.from('cosmetics').update({ sub_tags: JSON.stringify(tags) }).eq('id', id)
     }
   } catch {}
 
-  const row = db.prepare('SELECT * FROM cosmetics WHERE id = ?').get(id)
+  const { data: row } = await supabase.from('cosmetics').select('*').eq('id', id).single()
   return NextResponse.json(row)
 }
 
@@ -122,10 +126,16 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const userId = _req.cookies.get('cosmetics_user')?.value
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = getDb()
-  const row = db.prepare('SELECT * FROM cosmetics WHERE id = ? AND user_id = ?').get(Number(params.id), userId) as { photo_url?: string; photo_urls?: string } | undefined
+  const { data: row } = await supabase
+    .from('cosmetics')
+    .select('photo_url, photo_urls')
+    .eq('id', Number(params.id))
+    .eq('user_id', userId)
+    .maybeSingle()
+
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // Delete images from Supabase Storage
   const urls: string[] = []
   if (row.photo_urls) {
     try { urls.push(...JSON.parse(row.photo_urls)) } catch {}
@@ -133,12 +143,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     urls.push(row.photo_url)
   }
 
-  for (const url of urls) {
-    const filename = url.replace(/^\/uploads\//, '')
-    const filePath = path.join(UPLOADS_DIR_PATH, filename)
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+  const filenames = urls
+    .map((url: string) => url.split('/').pop())
+    .filter((f): f is string => !!f)
+
+  if (filenames.length > 0) {
+    await supabase.storage.from('uploads').remove(filenames)
   }
 
-  db.prepare('DELETE FROM cosmetics WHERE id = ? AND user_id = ?').run(Number(params.id), userId)
+  await supabase.from('cosmetics').delete().eq('id', Number(params.id)).eq('user_id', userId)
   return NextResponse.json({ success: true })
 }

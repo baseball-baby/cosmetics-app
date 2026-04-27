@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDb } from '@/lib/db'
+import { supabase } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -17,14 +17,17 @@ const CATEGORY_TAG_HINTS: Record<string, string> = {
 }
 
 async function autoTag(id: number, userId: string, brand: string, name: string, category: string, shade_name: string | null, official_description: string | null, official_positioning: string | null): Promise<string[]> {
-  const db = getDb()
-  const existingRows = db.prepare(
-    'SELECT sub_tags FROM cosmetics WHERE category = ? AND id != ? AND user_id = ? AND sub_tags IS NOT NULL'
-  ).all(category, id, userId) as { sub_tags: string }[]
+  const { data: existingRows } = await supabase
+    .from('cosmetics')
+    .select('sub_tags')
+    .eq('category', category)
+    .neq('id', id)
+    .eq('user_id', userId)
+    .not('sub_tags', 'is', null)
 
-  const existingTags = existingRows
-    .flatMap((r) => { try { return JSON.parse(r.sub_tags) as string[] } catch { return [] } })
-    .filter((v, i, arr) => arr.indexOf(v) === i)
+  const existingTags = (existingRows || [])
+    .flatMap((r: { sub_tags: string }) => { try { return JSON.parse(r.sub_tags) as string[] } catch { return [] } })
+    .filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i)
 
   const hints = CATEGORY_TAG_HINTS[category] || '相關特性'
   const existingLine = existingTags.length > 0
@@ -58,7 +61,6 @@ export async function GET(req: NextRequest) {
   const userId = req.cookies.get('cosmetics_user')?.value
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = getDb()
   const { searchParams } = new URL(req.url)
   const category = searchParams.get('category')
   const search = searchParams.get('search')
@@ -68,30 +70,26 @@ export async function GET(req: NextRequest) {
 
   const allowed = ['expiry_date', 'purchase_date', 'brand', 'price', 'created_at']
   const sortCol = allowed.includes(sort) ? sort : 'created_at'
-  const sortOrder = order === 'ASC' ? 'ASC' : 'DESC'
+  const ascending = order === 'ASC'
 
-  let query = 'SELECT * FROM cosmetics WHERE user_id = ?'
-  const params: unknown[] = [userId]
+  let query = supabase.from('cosmetics').select('*').eq('user_id', userId)
 
   if (category && category !== '全部') {
-    query += ' AND category = ?'
-    params.push(category)
+    query = query.eq('category', category)
   }
 
   if (search) {
-    query += ' AND (brand LIKE ? OR name LIKE ? OR shade_name LIKE ?)'
-    const like = `%${search}%`
-    params.push(like, like, like)
+    query = query.or(`brand.ilike.%${search}%,name.ilike.%${search}%,shade_name.ilike.%${search}%`)
   }
 
   if (sub_tag) {
-    query += ' AND sub_tags LIKE ?'
-    params.push(`%"${sub_tag}"%`)
+    query = query.like('sub_tags', `%"${sub_tag}"%`)
   }
 
-  query += ` ORDER BY CASE WHEN ${sortCol} IS NULL THEN 1 ELSE 0 END, ${sortCol} ${sortOrder}`
+  query = query.order(sortCol, { ascending, nullsFirst: false })
 
-  const rows = db.prepare(query).all(...params)
+  const { data: rows, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(rows)
 }
 
@@ -99,44 +97,41 @@ export async function POST(req: NextRequest) {
   const userId = req.cookies.get('cosmetics_user')?.value
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = getDb()
   const body = await req.json()
-
   const photoUrls: string[] = body.photo_urls || (body.photo_url ? [body.photo_url] : [])
   const primaryPhoto = photoUrls[0] || null
 
-  const result = db.prepare(`
-    INSERT INTO cosmetics (user_id, brand, name, category, shade_name, shade_description,
-      official_description, official_positioning, personal_notes,
-      expiry_date, purchase_date, price, photo_url, photo_urls)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    userId,
-    body.brand,
-    body.name,
-    body.category,
-    body.shade_name || null,
-    body.shade_description || null,
-    body.official_description || null,
-    body.official_positioning || null,
-    body.personal_notes || null,
-    body.expiry_date || null,
-    body.purchase_date || null,
-    body.price ? Number(body.price) : null,
-    primaryPhoto,
-    photoUrls.length > 0 ? JSON.stringify(photoUrls) : null
-  )
+  const { data: row, error } = await supabase
+    .from('cosmetics')
+    .insert({
+      user_id: userId,
+      brand: body.brand,
+      name: body.name,
+      category: body.category,
+      shade_name: body.shade_name || null,
+      shade_description: body.shade_description || null,
+      official_description: body.official_description || null,
+      official_positioning: body.official_positioning || null,
+      personal_notes: body.personal_notes || null,
+      expiry_date: body.expiry_date || null,
+      purchase_date: body.purchase_date || null,
+      price: body.price ? Number(body.price) : null,
+      photo_url: primaryPhoto,
+      photo_urls: photoUrls.length > 0 ? JSON.stringify(photoUrls) : null,
+    })
+    .select()
+    .single()
 
-  const newId = result.lastInsertRowid as number
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // Auto-tag (best-effort)
   try {
-    const tags = await autoTag(newId, userId, body.brand, body.name, body.category, body.shade_name || null, body.official_description || null, body.official_positioning || null)
+    const tags = await autoTag(row.id, userId, body.brand, body.name, body.category, body.shade_name || null, body.official_description || null, body.official_positioning || null)
     if (tags.length > 0) {
-      db.prepare('UPDATE cosmetics SET sub_tags = ? WHERE id = ?').run(JSON.stringify(tags), newId)
+      await supabase.from('cosmetics').update({ sub_tags: JSON.stringify(tags) }).eq('id', row.id)
+      row.sub_tags = JSON.stringify(tags)
     }
   } catch {}
 
-  const row = db.prepare('SELECT * FROM cosmetics WHERE id = ?').get(newId)
   return NextResponse.json(row, { status: 201 })
 }
