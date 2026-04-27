@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Cosmetic, CATEGORIES } from '@/lib/types'
 import BarcodeScanner from './BarcodeScanner'
 import AutoResizeTextarea from './AutoResizeTextarea'
-import { ScanBarcode, Sparkles, Plus } from 'lucide-react'
+import { ScanBarcode, Sparkles, ImagePlus, X } from 'lucide-react'
 
 interface Props {
   initial?: Partial<Cosmetic>
@@ -31,14 +31,14 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
   const brandTimer = useRef<ReturnType<typeof setTimeout>>()
   const productTimer = useRef<ReturnType<typeof setTimeout>>()
 
-  const initPhotos = (() => {
+  const initPhoto = (() => {
     if (initial?.photo_urls) {
-      try { return JSON.parse(initial.photo_urls) as string[] } catch {}
+      try { return (JSON.parse(initial.photo_urls) as string[])[0] || null } catch {}
     }
-    return initial?.photo_url ? [initial.photo_url] : []
+    return initial?.photo_url || null
   })()
 
-  const [photos, setPhotos] = useState<string[]>(initPhotos)
+  const [photo, setPhoto] = useState<string | null>(initPhoto)
 
   const [form, setForm] = useState({
     brand: initial?.brand || '',
@@ -89,7 +89,7 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
     fd.append('file', file)
     const res = await fetch('/api/upload', { method: 'POST', body: fd })
     const data = await res.json()
-    if (data.url) setPhotos((prev) => [...prev, data.url])
+    if (data.url) setPhoto(data.url)
     setUploading(false)
   }
 
@@ -103,12 +103,12 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
       const res = await fetch('/api/fill-description', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brand: form.brand, name: form.name, category: form.category, hasPhotos: photos.length > 0 }),
+        body: JSON.stringify({ brand: form.brand, name: form.name, category: form.category, hasPhotos: !!photo }),
       })
       const data = await res.json()
       if (data.official_description) set('official_description', data.official_description)
       if (data.official_positioning) set('official_positioning', data.official_positioning)
-      if (data.photo_url && photos.length === 0) setPhotos([data.photo_url])
+      if (data.photo_url && !photo) setPhoto(data.photo_url)
     } finally {
       setFilling(false)
     }
@@ -155,8 +155,8 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
       price: form.price ? Number(form.price) : null,
       expiry_date: form.expiry_date || null,
       purchase_date: form.purchase_date || null,
-      photo_url: photos[0] || null,
-      photo_urls: photos,
+      photo_url: photo || null,
+      photo_urls: photo ? [photo] : [],
     }
 
     const url = initial?.id ? `/api/cosmetics/${initial.id}` : '/api/cosmetics'
@@ -185,7 +185,7 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
 
       <form onSubmit={handleSubmit} className="space-y-6">
 
-        {/* Brand + scan */}
+        {/* ── 上半部：使用者自填 ── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <div className="flex items-center justify-between mb-1">
@@ -196,11 +196,10 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
                 disabled={scanning}
                 className="flex items-center gap-1 text-xs text-nude-500 hover:text-blush-600 transition-colors"
               >
-                {scanning ? (
-                  <div className="w-3 h-3 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <ScanBarcode size={14} />
-                )}
+                {scanning
+                  ? <div className="w-3 h-3 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
+                  : <ScanBarcode size={14} />
+                }
                 {scanning ? '搜尋中…' : '掃條碼'}
               </button>
             </div>
@@ -217,14 +216,10 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
               {showBrandDrop && (
                 <div className="absolute z-20 w-full bg-white border border-nude-200 rounded-xl shadow-lg mt-1 overflow-hidden max-h-48 overflow-y-auto">
                   {brandSuggestions.map((b) => (
-                    <button
-                      key={b}
-                      type="button"
+                    <button key={b} type="button"
                       onMouseDown={() => { set('brand', b); setShowBrandDrop(false) }}
                       className="w-full px-4 py-2.5 text-left text-sm text-nude-800 hover:bg-blush-50 transition-colors"
-                    >
-                      {b}
-                    </button>
+                    >{b}</button>
                   ))}
                 </div>
               )}
@@ -252,14 +247,8 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
               {showProductDrop && (
                 <div className="absolute z-20 w-full bg-white border border-nude-200 rounded-xl shadow-lg mt-1 overflow-hidden max-h-48 overflow-y-auto">
                   {productSuggestions.map((p) => (
-                    <button
-                      key={p.name}
-                      type="button"
-                      onMouseDown={() => {
-                        set('name', p.name)
-                        set('category', p.category)
-                        setShowProductDrop(false)
-                      }}
+                    <button key={p.name} type="button"
+                      onMouseDown={() => { set('name', p.name); set('category', p.category); setShowProductDrop(false) }}
                       className="w-full px-4 py-2.5 text-left hover:bg-blush-50 transition-colors"
                     >
                       <span className="text-sm text-nude-800">{p.name}</span>
@@ -291,8 +280,28 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
           </div>
         </div>
 
-        {/* Official info */}
-        <div className="space-y-3">
+        <div>
+          <label className="label">個人使用心得</label>
+          <AutoResizeTextarea className="input-field" value={form.personal_notes} onChange={(e) => set('personal_notes', e.target.value)} placeholder="使用感受、搭配技巧等個人筆記" />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="label">購買日期</label>
+            <input type="date" className="input-field" value={form.purchase_date} onChange={(e) => set('purchase_date', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">到期日</label>
+            <input type="date" className="input-field" value={form.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">價格（NT$）</label>
+            <input type="number" className="input-field" value={form.price} onChange={(e) => set('price', e.target.value)} placeholder="0" min="0" />
+          </div>
+        </div>
+
+        {/* ── 下半部：官方資訊（AI 填入） ── */}
+        <div className="border-t border-nude-100 pt-6 space-y-4">
           <div className="flex items-center justify-between">
             <label className="label mb-0">官方資訊</label>
             <button
@@ -314,77 +323,69 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
               )}
             </button>
           </div>
-          <div>
-            <label className="label">官方產品描述</label>
-            <AutoResizeTextarea className="input-field" value={form.official_description} onChange={(e) => set('official_description', e.target.value)} placeholder="官網/包裝上的產品描述" />
-          </div>
-          <div>
-            <label className="label">品牌定位 / 風格</label>
-            <AutoResizeTextarea className="input-field" value={form.official_positioning} onChange={(e) => set('official_positioning', e.target.value)} placeholder="e.g. 高遮瑕、持妝 16 小時" />
-          </div>
-        </div>
 
-        <div>
-          <label className="label">個人使用心得</label>
-          <AutoResizeTextarea className="input-field" value={form.personal_notes} onChange={(e) => set('personal_notes', e.target.value)} placeholder="使用感受、搭配技巧等個人筆記" />
-        </div>
+          {/* Photo + descriptions side by side */}
+          <div className="flex gap-4 items-start">
+            {/* Photo */}
+            <div className="flex-shrink-0">
+              <input ref={fileRef} type="file" accept="image/*" className="hidden"
+                onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])} />
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <label className="label">購買日期</label>
-            <input type="date" className="input-field" value={form.purchase_date} onChange={(e) => set('purchase_date', e.target.value)} />
-          </div>
-          <div>
-            <label className="label">到期日</label>
-            <input type="date" className="input-field" value={form.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} />
-          </div>
-          <div>
-            <label className="label">價格（NT$）</label>
-            <input type="number" className="input-field" value={form.price} onChange={(e) => set('price', e.target.value)} placeholder="0" min="0" />
-          </div>
-        </div>
-
-        {/* Photo – moved to bottom as optional */}
-        <div className="space-y-2">
-          <label className="label">產品照片 <span className="text-nude-400 font-normal text-xs">（選填，AI 填入會自動抓封面）</span></label>
-          <div className="flex gap-2 flex-wrap">
-            {photos.map((url, i) => (
-              <div key={url} className="relative w-20 h-20 rounded-xl overflow-hidden bg-nude-100 group">
-                <Image src={url} alt={`photo ${i + 1}`} fill className="object-cover" />
+              {photo ? (
+                <div className="relative w-28 h-28 rounded-xl overflow-hidden bg-nude-100">
+                  <Image src={photo} alt="產品照片" fill className="object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setPhoto(null)}
+                    className="absolute top-1.5 right-1.5 w-6 h-6 bg-black/60 hover:bg-black/80 text-white rounded-full flex items-center justify-center transition-colors"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
-                  onClick={() => setPhotos((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="absolute top-1 right-1 w-5 h-5 bg-black/60 text-white rounded-full text-xs items-center justify-center hidden group-hover:flex"
+                  onClick={() => fileRef.current?.click()}
+                  className="w-28 h-28 rounded-xl border-2 border-dashed border-nude-300 hover:border-blush-400 flex flex-col items-center justify-center text-nude-400 hover:text-blush-500 transition-colors gap-1.5"
                 >
-                  ×
+                  {uploading
+                    ? <div className="w-5 h-5 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
+                    : <>
+                        <ImagePlus size={20} />
+                        <span className="text-xs">上傳照片</span>
+                      </>
+                  }
                 </button>
-                {i === 0 && (
-                  <span className="absolute bottom-0 left-0 right-0 text-center text-white text-[10px] bg-black/40 py-0.5">封面</span>
-                )}
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="w-20 h-20 rounded-xl border-2 border-dashed border-nude-300 hover:border-blush-400 flex flex-col items-center justify-center text-nude-400 hover:text-blush-500 transition-colors gap-1"
-            >
-              {uploading ? (
-                <div className="w-5 h-5 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <Plus size={18} />
-                  <span className="text-xs">新增</span>
-                </>
               )}
-            </button>
+
+              {/* Allow re-upload when photo exists */}
+              {photo && !uploading && (
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="mt-1.5 w-28 text-center text-xs text-nude-400 hover:text-blush-500 transition-colors"
+                >
+                  更換照片
+                </button>
+              )}
+            </div>
+
+            {/* Description fields */}
+            <div className="flex-1 space-y-3 min-w-0">
+              <div>
+                <label className="label">官方產品描述</label>
+                <AutoResizeTextarea className="input-field" value={form.official_description}
+                  onChange={(e) => set('official_description', e.target.value)}
+                  placeholder="官網/包裝上的產品描述" />
+              </div>
+              <div>
+                <label className="label">品牌定位 / 風格</label>
+                <AutoResizeTextarea className="input-field" value={form.official_positioning}
+                  onChange={(e) => set('official_positioning', e.target.value)}
+                  placeholder="e.g. 高遮瑕、持妝 16 小時" />
+              </div>
+            </div>
           </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
-          />
         </div>
 
         <div className="flex gap-3 pt-2">
