@@ -35,7 +35,7 @@ export default function HomePage() {
       .filter((c) => c.category === category)
       .forEach((c) => {
         if (c.sub_tags) {
-          try { (JSON.parse(c.sub_tags) as string[]).forEach((t) => tagSet.add(t)) } catch {}
+          try { (JSON.parse(c.sub_tags) as string[]).forEach((t) => { const s = t.trim(); if (s) tagSet.add(s) }) } catch {}
         }
       })
     return Array.from(tagSet).sort()

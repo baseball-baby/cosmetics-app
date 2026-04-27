@@ -4,16 +4,17 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+// Only effect/finish tags — no product-type tags (蜜粉/噴霧 etc.)
 const CATEGORY_TAG_HINTS: Record<string, string> = {
-  '粉底/遮瑕': '妝感（光澤/霧面/緞面/自然妝感）、遮瑕力（輕透/中遮瑕/高遮瑕）、保濕控油（滋潤/控油/水潤/持妝）',
-  '眼影': '質地（啞光/珠光/亮片/閃粉）、色系（大地色/煙燻/彩色/裸色）',
-  '眼線': '持妝（防水/持久）、效果（自然/俐落）',
-  '睫毛膏': '效果（加長/濃密/捲翹/自然）、持妝（防水/一般）',
-  '口紅/唇釉': '妝感（霧面/緞面/亮面/玻璃唇）、特性（保濕/持妝/顯色/滋潤）',
-  '腮紅/修容': '妝感（霧面/珠光/亮面）',
-  '打亮': '妝感（霧光/珠光/閃爍）',
-  '眉筆': '效果（自然/立體/持妝）',
-  '定妝': '效果（控油/保濕/霧面/持妝）',
+  '粉底/遮瑕': '妝效（光澤/水光/霧面/自然）、遮瑕力（輕透/中遮瑕/高遮瑕）、特性（保濕/控油/持妝）',
+  '眼影': '質地（啞光/珠光/亮片/閃粉）',
+  '眼線': '特性（防水/持妝）',
+  '睫毛膏': '效果（加長/濃密/捲翹）、特性（防水/溫水可卸）',
+  '口紅/唇釉': '妝效（霧面/緞面/亮面/玻璃唇）、特性（保濕/持妝/滋潤）',
+  '腮紅/修容': '妝效（霧面/珠光/亮面）',
+  '打亮': '妝效（霧光/珠光/閃爍）',
+  '眉筆': '特性（防水/持妝/自然）',
+  '定妝': '妝效（控油/保濕/水光/持妝）',
 }
 
 async function autoTag(id: number, userId: string, brand: string, name: string, category: string, shade_name: string | null, official_description: string | null, official_positioning: string | null): Promise<string[]> {
@@ -27,21 +28,25 @@ async function autoTag(id: number, userId: string, brand: string, name: string, 
 
   const existingTags = (existingRows || [])
     .flatMap((r: { sub_tags: string }) => { try { return JSON.parse(r.sub_tags) as string[] } catch { return [] } })
-    .filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i)
+    .map((t: string) => t.trim())
+    .filter((v: string, i: number, arr: string[]) => v && arr.indexOf(v) === i)
 
-  const hints = CATEGORY_TAG_HINTS[category] || '相關特性'
+  const hints = CATEGORY_TAG_HINTS[category] || '相關妝效特性'
   const existingLine = existingTags.length > 0
     ? `已有標籤（優先沿用，語意相近直接用舊詞）：${existingTags.join('、')}\n`
     : ''
 
-  const prompt = `你是美妝產品分類專家。根據以下資訊標記分類標籤（繁體中文）。
+  const prompt = `你是美妝產品分類專家。根據官方描述標記妝效標籤（繁體中文）。
 
-品牌：${brand}，產品：${name}，類別：${category}，色號：${shade_name || '無'}
+品牌：${brand}，產品：${name}，類別：${category}
 官方描述：${official_description || '無'}，品牌定位：${official_positioning || '無'}
 
-針對「${category}」，從以下面向挑最適合的標籤：${hints}
-${existingLine}規則：優先沿用已有標籤，語意相同或高度相近的直接用舊標籤；只標記確定的；每個標籤≤5字；最多4個。
-只回傳 JSON 陣列，例：["霧面","高遮瑕"]`
+針對「${category}」，可選的妝效標籤：${hints}
+${existingLine}規則：
+- 只標記官方描述中**明確提到**的妝效，絕不根據產品名稱或類型推測
+- 優先沿用已有標籤，語意相同或高度相近的直接用舊標籤
+- 每個標籤≤5字，最多3個，寧少勿錯
+只回傳 JSON 陣列，例：["控油","持妝"]`
 
   try {
     const response = await client.messages.create({
