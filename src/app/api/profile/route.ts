@@ -58,13 +58,16 @@ export async function PATCH(req: NextRequest) {
   const userId = req.cookies.get('cosmetics_user')?.value
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json() as { shade_notes: unknown[] }
+  const body = await req.json() as { shade_notes?: unknown[]; brand_shade_table?: unknown[] }
 
-  await supabase.from('user_profiles').upsert({
+  const update: Record<string, unknown> = {
     user_id: userId,
-    shade_notes: JSON.stringify(body.shade_notes),
     updated_at: new Date().toISOString(),
-  }, { onConflict: 'user_id' })
+  }
+  if (body.shade_notes !== undefined) update.shade_notes = JSON.stringify(body.shade_notes)
+  if (body.brand_shade_table !== undefined) update.brand_shade_table = JSON.stringify(body.brand_shade_table)
+
+  await supabase.from('user_profiles').upsert(update, { onConflict: 'user_id' })
 
   const { data: row } = await supabase.from('user_profiles').select('*').eq('user_id', userId).single()
   return NextResponse.json(row)

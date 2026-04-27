@@ -59,9 +59,13 @@ export default function ProfilePage() {
   // Step 2: trial shades
   const [trialShades, setTrialShades] = useState<TrialShade[]>([newTrialShade()])
 
-  // Add to library (post-analysis)
-  const [addedToLibrary, setAddedToLibrary] = useState<Record<string, boolean>>({})
-  const [addingToLibrary, setAddingToLibrary] = useState<Record<string, boolean>>({})
+  // Auto-add result
+  const [autoAddResult, setAutoAddResult] = useState<{ added: number; skipped: number } | null>(null)
+
+  // Brand shade table (own state so we can mutate without full re-fetch)
+  const [brandShadeTable, setBrandShadeTable] = useState<BrandShadeEntry[]>([])
+  const [newBrand, setNewBrand] = useState('')
+  const [lookingUpBrand, setLookingUpBrand] = useState(false)
 
   // Feedback
   const [feedbackState, setFeedbackState] = useState<'none' | 'bad' | 'submitted'>('none')
@@ -79,6 +83,12 @@ export default function ProfilePage() {
           skin_concerns: data.skin_concerns || '',
           makeup_preferences: data.makeup_preferences || '',
         })
+        if (data.brand_shade_table) {
+          try {
+            const parsed = JSON.parse(data.brand_shade_table)
+            if (Array.isArray(parsed)) setBrandShadeTable(parsed as BrandShadeEntry[])
+          } catch {}
+        }
         setLoading(false)
       })
     fetch('/api/cosmetics?category=粉底/遮瑕&sort=brand&order=ASC')
@@ -91,7 +101,7 @@ export default function ProfilePage() {
     setSurveyStep(1)
     setPhotos([])
     setTrialShades([newTrialShade()])
-    setAddedToLibrary({})
+    setAutoAddResult(null)
     setFeedbackState('none')
     setShowSurvey(true)
   }
@@ -116,7 +126,6 @@ export default function ProfilePage() {
     if (photos.length === 0) return
     setAnalyzing(true)
     try {
-      // Save basic info
       await fetch('/api/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -139,32 +148,86 @@ export default function ProfilePage() {
         alert('分析失敗：' + data.error)
         return
       }
+
+      // Auto-add valid trial shades, dedup by brand + shade_name
+      const validShades = trialShades.filter(ts => ts.brand.trim())
+      if (validShades.length > 0) {
+        const freshFoundations: Cosmetic[] = await fetch(
+          '/api/cosmetics?category=粉底/遮瑕&sort=brand&order=ASC'
+        ).then(r => r.json()).catch(() => foundations)
+
+        let added = 0
+        let skipped = 0
+        await Promise.all(validShades.map(async ts => {
+          const shadeLower = ts.shade_name.trim().toLowerCase()
+          const brandLower = ts.brand.trim().toLowerCase()
+          const isDupe = shadeLower !== '' && freshFoundations.some(f =>
+            f.brand.trim().toLowerCase() === brandLower &&
+            (f.shade_name || '').trim().toLowerCase() === shadeLower
+          )
+          if (isDupe) { skipped++; return }
+          const addRes = await fetch('/api/cosmetics', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              brand: ts.brand.trim(),
+              name: ts.product.trim() || ts.brand.trim(),
+              shade_name: ts.shade_name.trim() || null,
+              category: '粉底/遮瑕',
+              color_verdict: ts.verdict || null,
+            }),
+          })
+          if (addRes.ok) added++
+        }))
+        setAutoAddResult({ added, skipped })
+
+        // Refresh foundations state
+        const updated: Cosmetic[] = await fetch(
+          '/api/cosmetics?category=粉底/遮瑕&sort=brand&order=ASC'
+        ).then(r => r.json()).catch(() => freshFoundations)
+        setFoundations(updated)
+      }
+
       const updated = await fetch('/api/profile').then(r => r.json())
       setProfile(updated)
+      if (updated.brand_shade_table) {
+        try {
+          const parsed = JSON.parse(updated.brand_shade_table)
+          if (Array.isArray(parsed)) setBrandShadeTable(parsed as BrandShadeEntry[])
+        } catch {}
+      }
       setSurveyStep('done')
     } finally {
       setAnalyzing(false)
     }
   }
 
-  async function addToLibrary(ts: TrialShade) {
-    if (!ts.brand.trim()) return
-    setAddingToLibrary(s => ({ ...s, [ts.id]: true }))
+  async function handleLookupBrand() {
+    if (!newBrand.trim()) return
+    setLookingUpBrand(true)
     try {
-      const res = await fetch('/api/cosmetics', {
+      const res = await fetch('/api/lookup-brand-shade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          brand: ts.brand.trim(),
-          name: ts.product.trim() || ts.shade_name.trim() || ts.brand.trim(),
-          shade_name: ts.shade_name.trim() || null,
-          category: '粉底/遮瑕',
-          color_verdict: ts.verdict || null,
+          brand: newBrand.trim(),
+          undertone: profile?.undertone,
+          depth: profile?.depth,
         }),
       })
-      if (res.ok) setAddedToLibrary(s => ({ ...s, [ts.id]: true }))
+      if (!res.ok) return
+      const entry: BrandShadeEntry = await res.json()
+      const updated = [...brandShadeTable, entry]
+      setBrandShadeTable(updated)
+      setNewBrand('')
+      // Persist to DB
+      await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_shade_table: updated }),
+      })
     } finally {
-      setAddingToLibrary(s => ({ ...s, [ts.id]: false }))
+      setLookingUpBrand(false)
     }
   }
 
@@ -190,12 +253,6 @@ export default function ProfilePage() {
   const analysisPhotos = profile?.analysis_photo_urls
     ? (() => { try { const p = JSON.parse(profile.analysis_photo_urls); return Array.isArray(p) ? p as string[] : [] } catch { return [] } })()
     : []
-
-  const brandShadeTable = profile?.brand_shade_table
-    ? (() => { try { const p = JSON.parse(profile.brand_shade_table); return Array.isArray(p) ? p as BrandShadeEntry[] : [] } catch { return [] } })()
-    : []
-
-  const addableShades = trialShades.filter(ts => ts.brand.trim())
 
   if (loading) {
     return (
@@ -334,6 +391,27 @@ export default function ProfilePage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Add brand */}
+              <div className="flex gap-2 mt-3">
+                <input
+                  value={newBrand}
+                  onChange={e => setNewBrand(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !lookingUpBrand && newBrand.trim() && handleLookupBrand()}
+                  placeholder="輸入品牌名稱查詢色號推薦…"
+                  className="input-field text-xs flex-1 py-2"
+                />
+                <button
+                  onClick={handleLookupBrand}
+                  disabled={lookingUpBrand || !newBrand.trim()}
+                  className="btn-secondary text-xs whitespace-nowrap py-2 flex items-center gap-1"
+                >
+                  {lookingUpBrand
+                    ? <><div className="w-3 h-3 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" /> 查詢中…</>
+                    : <><Plus size={12} /> 新增品牌</>
+                  }
+                </button>
               </div>
             </div>
           )}
@@ -618,29 +696,16 @@ export default function ProfilePage() {
                     </div>
                   )}
 
-                  {/* Add to library */}
-                  {addableShades.length > 0 && (
-                    <div className="border-t border-nude-100 pt-4 space-y-3">
-                      <p className="text-xs font-medium text-nude-700">將試色記錄加入化妝品庫</p>
-                      {addableShades.map(ts => (
-                        <div key={ts.id} className="flex items-center justify-between gap-2 bg-nude-50 rounded-xl p-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-nude-800 truncate">
-                              {ts.brand}{ts.product ? ` ${ts.product}` : ''}
-                            </p>
-                            <p className="text-xs text-nude-500">
-                              {ts.shade_name || '（無色號）'}{ts.verdict ? ` · ${ts.verdict}` : ''}
-                            </p>
-                          </div>
-                          {addedToLibrary[ts.id]
-                            ? <span className="text-xs text-emerald-600 font-medium flex-shrink-0">✓ 已加入</span>
-                            : <button onClick={() => addToLibrary(ts)} disabled={addingToLibrary[ts.id]}
-                                className="btn-secondary text-xs flex-shrink-0 py-1 px-3">
-                                {addingToLibrary[ts.id] ? '加入中…' : '加入'}
-                              </button>
-                          }
-                        </div>
-                      ))}
+                  {/* Auto-add summary */}
+                  {autoAddResult && autoAddResult.added > 0 && (
+                    <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-700">
+                      ✓ 已自動將 {autoAddResult.added} 件試色記錄加入化妝品庫
+                      {autoAddResult.skipped > 0 && `，${autoAddResult.skipped} 件已存在略過`}
+                    </div>
+                  )}
+                  {autoAddResult && autoAddResult.added === 0 && autoAddResult.skipped > 0 && (
+                    <div className="bg-nude-50 rounded-xl p-3 text-xs text-nude-500">
+                      試色記錄已全部存在於化妝品庫，無需重複加入
                     </div>
                   )}
                 </div>

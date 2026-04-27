@@ -322,47 +322,49 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
           </div>
         </div>
 
-        <div>
-          <label className="label">類別</label>
-          <select className="input-field" value={form.category} onChange={(e) => set('category', e.target.value)}>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">類別</label>
+            <select className="input-field" value={form.category} onChange={(e) => set('category', e.target.value)}>
+              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
 
-        <div>
-          <label className="label">色號名稱</label>
-          <div className="relative">
-            <input
-              className="input-field"
-              value={form.shade_name}
-              autoComplete="off"
-              onChange={(e) => { set('shade_name', e.target.value); searchShades(e.target.value, form.brand, form.name) }}
-              onBlur={() => setTimeout(() => setShowShadeDrop(false), 150)}
-              onFocus={() => shadeSuggestions.length > 0 && setShowShadeDrop(true)}
-              placeholder="e.g. Syracuse"
-            />
-            {shadeSearching && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <div className="w-3.5 h-3.5 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
-              </div>
-            )}
-            {showShadeDrop && (
-              <div className="absolute z-20 w-full bg-white border border-nude-200 rounded-xl shadow-lg mt-1 overflow-hidden max-h-48 overflow-y-auto">
-                {shadeSuggestions.map((s) => (
-                  <button key={s.name} type="button"
-                    onMouseDown={() => { set('shade_name', s.name); setShowShadeDrop(false) }}
-                    className="w-full px-3 py-2 text-left hover:bg-blush-50 transition-colors flex items-center gap-2.5"
-                  >
-                    {s.image ? (
-                      <img src={s.image} alt={s.name} className="w-7 h-7 rounded object-cover flex-shrink-0 bg-nude-100" />
-                    ) : (
-                      <div className="w-7 h-7 rounded bg-nude-100 flex-shrink-0" />
-                    )}
-                    <span className="text-sm text-nude-800">{s.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div>
+            <label className="label">色號名稱</label>
+            <div className="relative">
+              <input
+                className="input-field"
+                value={form.shade_name}
+                autoComplete="off"
+                onChange={(e) => { set('shade_name', e.target.value); searchShades(e.target.value, form.brand, form.name) }}
+                onBlur={() => setTimeout(() => setShowShadeDrop(false), 150)}
+                onFocus={() => shadeSuggestions.length > 0 && setShowShadeDrop(true)}
+                placeholder="e.g. Syracuse"
+              />
+              {shadeSearching && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="w-3.5 h-3.5 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+              {showShadeDrop && (
+                <div className="absolute z-20 w-full bg-white border border-nude-200 rounded-xl shadow-lg mt-1 overflow-hidden max-h-48 overflow-y-auto">
+                  {shadeSuggestions.map((s) => (
+                    <button key={s.name} type="button"
+                      onMouseDown={() => { set('shade_name', s.name); setShowShadeDrop(false) }}
+                      className="w-full px-3 py-2 text-left hover:bg-blush-50 transition-colors flex items-center gap-2.5"
+                    >
+                      {s.image ? (
+                        <img src={s.image} alt={s.name} className="w-7 h-7 rounded object-cover flex-shrink-0 bg-nude-100" />
+                      ) : (
+                        <div className="w-7 h-7 rounded bg-nude-100 flex-shrink-0" />
+                      )}
+                      <span className="text-sm text-nude-800">{s.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -412,7 +414,7 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
 
           {/* Tip 2: AI fill explanation */}
           <DismissibleTip storageKey="tip_ai_fill">
-            點擊「AI 幫我填入」，系統會自動搜尋官方產品描述、品牌定位，以及產品封面照片（若尚未上傳）。
+            「AI 幫我填入」會自動搜尋官方描述、品牌定位與封面照片。填入後，AI 將根據描述自動標記妝效標籤（如：控油、水光、持妝），讓你之後能依標籤快速篩選。
           </DismissibleTip>
 
           {/* Photo + descriptions side by side */}
