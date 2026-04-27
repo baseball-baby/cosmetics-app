@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { ColorProfile, ShadeNote, ColorVerdict, Cosmetic } from '@/lib/types'
 import AutoResizeTextarea from '@/components/AutoResizeTextarea'
+import { X, Plus, RotateCcw } from 'lucide-react'
 
 interface PhotoEntry {
   url: string
@@ -11,9 +12,30 @@ interface PhotoEntry {
   preview: string
 }
 
-type SurveyStep = 1 | 2 | 3
+interface TrialShade {
+  id: string
+  brand: string
+  product: string
+  shade_name: string
+  verdict: ColorVerdict | null
+}
+
+type SurveyStep = 1 | 2 | 3 | 'done'
 
 const VERDICT_OPTIONS: ColorVerdict[] = ['適合', '偏黃', '偏深', '偏淺', '偏冷', '偏暖', '不適合']
+
+function newTrialShade(): TrialShade {
+  return { id: Math.random().toString(36).slice(2), brand: '', product: '', shade_name: '', verdict: null }
+}
+
+function trialShadesToNotes(shades: TrialShade[]): ShadeNote[] {
+  return shades
+    .filter((ts) => ts.brand.trim() || ts.shade_name.trim())
+    .map((ts) => ({
+      shade: [ts.brand.trim(), ts.product.trim(), ts.shade_name.trim()].filter(Boolean).join(' '),
+      verdicts: ts.verdict ? [ts.verdict] : [],
+    }))
+}
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<ColorProfile | null>(null)
@@ -25,7 +47,7 @@ export default function ProfilePage() {
   const [surveyStep, setSurveyStep] = useState<SurveyStep>(1)
   const [analyzing, setAnalyzing] = useState(false)
   const [photos, setPhotos] = useState<PhotoEntry[]>([])
-  const [uploadingIdx, setUploadingIdx] = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [surveyForm, setSurveyForm] = useState({
@@ -42,7 +64,10 @@ export default function ProfilePage() {
     makeup_preferences: '',
   })
 
-  // Shade notes
+  // Trial shades (survey step 2)
+  const [trialShades, setTrialShades] = useState<TrialShade[]>([newTrialShade()])
+
+  // Shade notes (post-analysis section)
   const [shadeNotes, setShadeNotes] = useState<ShadeNote[]>([])
   const [savingNotes, setSavingNotes] = useState(false)
   const [reanalyzing, setReanalyzing] = useState(false)
@@ -50,6 +75,10 @@ export default function ProfilePage() {
   const [foundations, setFoundations] = useState<Cosmetic[]>([])
   const [shadeDropdown, setShadeDropdown] = useState<Cosmetic[]>([])
   const [syncing, setSyncing] = useState(false)
+
+  // Add-to-library state (per trialShade id)
+  const [addedToLibrary, setAddedToLibrary] = useState<Record<string, boolean>>({})
+  const [addingToLibrary, setAddingToLibrary] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     fetch('/api/profile')
@@ -70,7 +99,6 @@ export default function ProfilePage() {
         } catch { setShadeNotes([]) }
         setLoading(false)
       })
-    // Load foundations for autocomplete
     fetch('/api/cosmetics?category=粉底/遮瑕&sort=brand&order=ASC')
       .then((r) => r.json())
       .then((data: Cosmetic[]) => setFoundations(data))
@@ -80,6 +108,8 @@ export default function ProfilePage() {
   function openSurvey() {
     setSurveyStep(1)
     setPhotos([])
+    setTrialShades([newTrialShade()])
+    setAddedToLibrary({})
     setShowSurvey(true)
   }
 
@@ -87,14 +117,33 @@ export default function ProfilePage() {
     const preview = URL.createObjectURL(file)
     const fd = new FormData()
     fd.append('file', file)
-    setUploadingIdx(true)
+    setUploadingPhoto(true)
     const res = await fetch('/api/upload', { method: 'POST', body: fd })
     const data = await res.json()
     setPhotos((prev) => [...prev, { url: data.url, shades: '', preview }])
-    setUploadingIdx(false)
+    setUploadingPhoto(false)
   }
 
-  async function runAnalysis(shadeNotesForAnalysis?: ShadeNote[]) {
+  async function goToStep3() {
+    // Save trial shades to profile before moving to photo step
+    const notes = trialShadesToNotes(trialShades)
+    if (notes.length > 0) {
+      const merged = [...shadeNotes]
+      for (const note of notes) {
+        if (!merged.find((n) => n.shade === note.shade)) merged.push(note)
+      }
+      await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shade_notes: merged }),
+      })
+      setShadeNotes(merged)
+    }
+    setSurveyStep(3)
+  }
+
+  async function runAnalysis() {
+    if (photos.length === 0) return
     setAnalyzing(true)
     try {
       await fetch('/api/profile', {
@@ -103,13 +152,17 @@ export default function ProfilePage() {
         body: JSON.stringify({ ...profile, ...surveyForm }),
       })
 
-      const body: { photos: { url: string; shades: string }[]; shade_notes?: { shade: string; verdicts: string[] }[] } = {
+      const currentNotes = trialShadesToNotes(trialShades)
+      const body: {
+        photos: { url: string; shades: string }[]
+        shade_notes?: { shade: string; verdicts: string[] }[]
+      } = {
         photos: photos.map((p) => ({ url: p.url, shades: p.shades })),
       }
-      if (shadeNotesForAnalysis && shadeNotesForAnalysis.length > 0) {
-        body.shade_notes = shadeNotesForAnalysis.map((n) => ({
+      if (currentNotes.length > 0) {
+        body.shade_notes = currentNotes.map((n) => ({
           shade: n.shade,
-          verdicts: (n.verdicts.filter(Boolean) as string[]),
+          verdicts: n.verdicts.filter(Boolean) as string[],
         }))
       }
 
@@ -131,29 +184,40 @@ export default function ProfilePage() {
         skin_concerns: updated.skin_concerns || '',
         makeup_preferences: updated.makeup_preferences || '',
       })
-      setSurveyStep(3)
+      setSurveyStep('done')
     } finally {
       setAnalyzing(false)
     }
   }
 
-  async function handleAnalyze() {
-    if (photos.length === 0) {
-      alert('請先上傳至少一張照片')
-      return
-    }
-    await runAnalysis()
-  }
-
   async function handleReanalyze() {
     if (photos.length === 0) {
-      alert('請先重新上傳照片')
       openSurvey()
       return
     }
     setReanalyzing(true)
     try {
-      await runAnalysis(shadeNotes)
+      await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...profile, ...basicForm }),
+      })
+      const body = {
+        photos: photos.map((p) => ({ url: p.url, shades: p.shades })),
+        shade_notes: shadeNotes
+          .filter((n) => n.verdicts.length > 0)
+          .map((n) => ({ shade: n.shade, verdicts: n.verdicts.filter(Boolean) as string[] })),
+      }
+      const res = await fetch('/api/analyze-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!data.error) {
+        const updated = await fetch('/api/profile').then((r) => r.json())
+        setProfile(updated)
+      }
     } finally {
       setReanalyzing(false)
     }
@@ -168,7 +232,6 @@ export default function ProfilePage() {
     }).then((r) => r.json())
     setProfile(updated)
     setSaving(false)
-    alert('已儲存')
   }
 
   async function saveShadeNotes(notes: ShadeNote[]) {
@@ -184,8 +247,7 @@ export default function ProfilePage() {
 
   function addShadeNote(shade: string, cosmeticId?: number) {
     if (!shade.trim()) return
-    const existing = shadeNotes.find((n) => n.shade === shade.trim())
-    if (existing) return
+    if (shadeNotes.find((n) => n.shade === shade.trim())) return
     const note: ShadeNote = { shade: shade.trim(), verdicts: [], ...(cosmeticId ? { cosmetic_id: cosmeticId } : {}) }
     saveShadeNotes([...shadeNotes, note])
     setNewShadeInput('')
@@ -220,31 +282,48 @@ export default function ProfilePage() {
         cosmetic_id: f.id,
         verdicts: f.color_verdict ? [f.color_verdict] : [],
       }))
-    if (newNotes.length > 0) {
-      await saveShadeNotes([...shadeNotes, ...newNotes])
-    }
+    if (newNotes.length > 0) await saveShadeNotes([...shadeNotes, ...newNotes])
     setSyncing(false)
   }
 
   function handleShadeInput(val: string) {
     setNewShadeInput(val)
-    if (val.trim().length < 1) {
-      setShadeDropdown([])
-      return
-    }
+    if (val.trim().length < 1) { setShadeDropdown([]); return }
     const q = val.toLowerCase()
-    const matches = foundations.filter((f) => {
-      const text = `${f.brand} ${f.name}${f.shade_name ? ` ${f.shade_name}` : ''}`.toLowerCase()
-      return text.includes(q)
-    }).slice(0, 6)
-    setShadeDropdown(matches)
+    setShadeDropdown(
+      foundations.filter((f) =>
+        `${f.brand} ${f.name}${f.shade_name ? ` ${f.shade_name}` : ''}`.toLowerCase().includes(q)
+      ).slice(0, 6)
+    )
   }
 
+  async function addToLibrary(ts: TrialShade) {
+    if (!ts.brand.trim()) return
+    setAddingToLibrary((s) => ({ ...s, [ts.id]: true }))
+    try {
+      const res = await fetch('/api/cosmetics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brand: ts.brand.trim(),
+          name: ts.product.trim() || ts.shade_name.trim() || ts.brand.trim(),
+          shade_name: ts.shade_name.trim() || null,
+          category: '粉底/遮瑕',
+          color_verdict: ts.verdict || null,
+        }),
+      })
+      if (res.ok) setAddedToLibrary((s) => ({ ...s, [ts.id]: true }))
+    } finally {
+      setAddingToLibrary((s) => ({ ...s, [ts.id]: false }))
+    }
+  }
+
+  // Derived
   const foundationShades = profile?.suitable_foundation_shades
     ? (() => {
         try {
-          const parsed = JSON.parse(profile.suitable_foundation_shades)
-          return Array.isArray(parsed) ? null : parsed as Record<string, { verdict: string; analysis: string }>
+          const p = JSON.parse(profile.suitable_foundation_shades)
+          return Array.isArray(p) ? null : p as Record<string, { verdict: string; analysis: string }>
         } catch { return null }
       })()
     : null
@@ -252,11 +331,14 @@ export default function ProfilePage() {
   const analysisPhotos = profile?.analysis_photo_urls
     ? (() => {
         try {
-          const parsed = JSON.parse(profile.analysis_photo_urls)
-          return Array.isArray(parsed) ? parsed as string[] : []
+          const p = JSON.parse(profile.analysis_photo_urls)
+          return Array.isArray(p) ? p as string[] : []
         } catch { return [] }
       })()
     : []
+
+  // Trial shades eligible to add to library (have brand)
+  const addableShades = trialShades.filter((ts) => ts.brand.trim())
 
   if (loading) {
     return (
@@ -266,7 +348,7 @@ export default function ProfilePage() {
     )
   }
 
-  const hasAnalysis = profile?.undertone || profile?.depth
+  const hasAnalysis = !!(profile?.undertone || profile?.depth)
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -275,12 +357,48 @@ export default function ProfilePage() {
         <p className="text-sm text-nude-500 mt-0.5">記錄你的膚色特徵，讓 AI 給你更準確的建議</p>
       </div>
 
-      {/* AI Analysis Result */}
-      {hasAnalysis ? (
+      {/* ── Empty state: 3-step guide ── */}
+      {!hasAnalysis && (
+        <div className="card p-6 space-y-5">
+          <div className="text-center">
+            <div className="text-5xl mb-3">🎨</div>
+            <p className="font-bold text-nude-800 text-lg">開始建立你的專屬膚況檔案</p>
+            <p className="text-sm text-nude-500 mt-1">只需 3 個步驟，AI 就能分析你的膚色，給你最精準的彩妝建議</p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { step: '1', emoji: '⚙️', title: '基本膚況', desc: '膚質、膚況問題' },
+              { step: '2', emoji: '💄', title: '試色記錄', desc: '色號試用心得（選填）' },
+              { step: '3', emoji: '📸', title: '上傳照片', desc: 'AI 分析你的膚色' },
+            ].map(({ step, emoji, title, desc }) => (
+              <div key={step} className="bg-nude-50 rounded-2xl p-4 text-center space-y-1">
+                <div className="text-2xl">{emoji}</div>
+                <div className="text-xs font-bold text-blush-500">Step {step}</div>
+                <div className="text-xs font-semibold text-nude-800">{title}</div>
+                <div className="text-xs text-nude-400">{desc}</div>
+              </div>
+            ))}
+          </div>
+
+          <button onClick={openSurvey} className="btn-primary w-full text-base py-3">
+            開始分析 →
+          </button>
+        </div>
+      )}
+
+      {/* ── Analysis result ── */}
+      {hasAnalysis && (
         <div className="card p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-nude-800 flex items-center gap-1.5">✨ AI 色彩分析</h2>
-            <button onClick={openSurvey} className="btn-secondary text-xs">🔄 重新分析</button>
+            <button
+              onClick={openSurvey}
+              className="flex items-center gap-1.5 text-xs text-nude-500 hover:text-blush-600 transition-colors"
+            >
+              <RotateCcw size={13} />
+              重新分析
+            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -350,18 +468,9 @@ export default function ProfilePage() {
 
           <p className="text-xs text-nude-400">最後更新：{new Date(profile?.updated_at || '').toLocaleDateString('zh-TW')}</p>
         </div>
-      ) : (
-        <div className="card p-6 text-center space-y-4 bg-gradient-to-br from-blush-50 to-rose-50">
-          <div className="text-5xl">🎨</div>
-          <div>
-            <p className="font-semibold text-nude-800">尚未建立膚況檔案</p>
-            <p className="text-sm text-nude-500 mt-1">完成皮膚調查，讓 AI 分析你的專屬色彩</p>
-          </div>
-          <button onClick={openSurvey} className="btn-primary">開始皮膚調查</button>
-        </div>
       )}
 
-      {/* Shade Notes */}
+      {/* ── Shade notes (post-analysis) ── */}
       {hasAnalysis && (
         <div className="card p-5 space-y-4 overflow-visible">
           <div className="flex items-center justify-between">
@@ -381,7 +490,6 @@ export default function ProfilePage() {
           </div>
           <p className="text-xs text-nude-500">記錄你實際試過的色號，AI 可以用這些資料給你更準確的建議。</p>
 
-          {/* Add shade note */}
           <div className="relative">
             <div className="flex gap-2">
               <input
@@ -392,12 +500,7 @@ export default function ProfilePage() {
                 placeholder="搜尋化妝品庫或輸入色號名稱…"
                 className="input-field text-sm flex-1"
               />
-              <button
-                onClick={() => addShadeNote(newShadeInput)}
-                className="btn-primary text-sm px-4"
-              >
-                新增
-              </button>
+              <button onClick={() => addShadeNote(newShadeInput)} className="btn-primary text-sm px-4">新增</button>
             </div>
             {shadeDropdown.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-nude-200 rounded-xl shadow-lg z-10 overflow-hidden">
@@ -421,9 +524,7 @@ export default function ProfilePage() {
                 <div key={note.shade} className="bg-nude-50 rounded-xl p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-nude-800">{note.shade}</span>
-                    <button onClick={() => removeShadeNote(note.shade)} className="text-xs text-nude-400 hover:text-red-500 transition-colors">
-                      移除
-                    </button>
+                    <button onClick={() => removeShadeNote(note.shade)} className="text-xs text-nude-400 hover:text-red-500 transition-colors">移除</button>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {VERDICT_OPTIONS.map((v) => (
@@ -462,7 +563,7 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Basic settings */}
+      {/* ── Basic settings ── */}
       <div className="card p-5 space-y-4">
         <h2 className="font-semibold text-nude-800">⚙️ 基本膚況設定</h2>
         <div>
@@ -492,32 +593,43 @@ export default function ProfilePage() {
         </button>
       </div>
 
-      {/* Survey Modal */}
+      {/* ── Survey Modal ── */}
       {showSurvey && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl overflow-hidden flex flex-col max-h-[92vh]">
 
             {/* Modal header */}
             <div className="flex items-center justify-between p-5 border-b border-nude-100 flex-shrink-0">
               <div>
                 <h3 className="font-bold text-nude-800">
-                  {surveyStep === 1 && '皮膚調查 · 第一步'}
-                  {surveyStep === 2 && '皮膚調查 · 第二步'}
-                  {surveyStep === 3 && '分析完成 🎉'}
+                  {surveyStep === 1 && 'Step 1 · 基本膚況'}
+                  {surveyStep === 2 && 'Step 2 · 試色記錄'}
+                  {surveyStep === 3 && 'Step 3 · 上傳照片'}
+                  {surveyStep === 'done' && '分析完成 🎉'}
                 </h3>
                 <p className="text-xs text-nude-500 mt-0.5">
                   {surveyStep === 1 && '告訴我們你的膚質和膚況'}
-                  {surveyStep === 2 && '上傳照片，AI 幫你分析膚色'}
-                  {surveyStep === 3 && '你的膚況檔案已建立'}
+                  {surveyStep === 2 && '填入試過的底妝色號（選填）'}
+                  {surveyStep === 3 && '上傳照片，AI 幫你分析膚色'}
+                  {surveyStep === 'done' && '你的膚況檔案已更新'}
                 </p>
               </div>
-              <button onClick={() => setShowSurvey(false)} className="text-nude-400 hover:text-nude-600 text-xl w-8 h-8 flex items-center justify-center">✕</button>
+              <button onClick={() => setShowSurvey(false)} className="text-nude-400 hover:text-nude-600 w-8 h-8 flex items-center justify-center">
+                <X size={18} />
+              </button>
             </div>
 
             {/* Step indicator */}
-            <div className="flex gap-2 px-5 pt-4 flex-shrink-0">
-              {[1, 2, 3].map((s) => (
-                <div key={s} className={`h-1 flex-1 rounded-full transition-colors ${surveyStep >= s ? 'bg-blush-400' : 'bg-nude-200'}`} />
+            <div className="flex gap-1.5 px-5 pt-4 flex-shrink-0">
+              {([1, 2, 3] as const).map((s) => (
+                <div
+                  key={s}
+                  className={`h-1 flex-1 rounded-full transition-colors ${
+                    surveyStep === 'done' || (typeof surveyStep === 'number' && surveyStep >= s)
+                      ? 'bg-blush-400'
+                      : 'bg-nude-200'
+                  }`}
+                />
               ))}
             </div>
 
@@ -528,7 +640,7 @@ export default function ProfilePage() {
               {surveyStep === 1 && (
                 <div className="space-y-4">
                   <div>
-                    <label className="label text-base font-medium text-nude-800 mb-2 block">你的膚質是？</label>
+                    <label className="label text-sm font-medium text-nude-800 mb-2 block">你的膚質是？</label>
                     <div className="grid grid-cols-2 gap-2">
                       {['乾性', '油性', '混合', '中性'].map((type) => (
                         <button
@@ -545,17 +657,14 @@ export default function ProfilePage() {
                       ))}
                     </div>
                   </div>
-
                   <div>
                     <label className="label">膚色描述（選填）</label>
                     <input className="input-field" value={surveyForm.skin_tone_description} onChange={(e) => setSurveyForm((f) => ({ ...f, skin_tone_description: e.target.value }))} placeholder="e.g. 偏黃、中淺膚色" />
                   </div>
-
                   <div>
                     <label className="label">膚況問題（選填）</label>
                     <AutoResizeTextarea className="input-field" value={surveyForm.skin_concerns} onChange={(e) => setSurveyForm((f) => ({ ...f, skin_concerns: e.target.value }))} placeholder="e.g. 毛孔粗大、容易泛紅、有痘疤" />
                   </div>
-
                   <div>
                     <label className="label">彩妝偏好（選填）</label>
                     <AutoResizeTextarea className="input-field" value={surveyForm.makeup_preferences} onChange={(e) => setSurveyForm((f) => ({ ...f, makeup_preferences: e.target.value }))} placeholder="e.g. 喜歡自然感，不喜歡太厚重" />
@@ -563,12 +672,88 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {/* Step 2: Photos */}
+              {/* Step 2: Trial shades */}
               {surveyStep === 2 && (
+                <div className="space-y-4">
+                  <div className="bg-blush-50 rounded-xl p-3 text-xs text-nude-700 space-y-1">
+                    <p>💄 填入你試過的底妝色號，AI 分析時會參考這些資料，讓建議更準確。</p>
+                    <p className="text-nude-400">這個步驟是選填的，沒有試色記錄也可以直接跳到下一步。</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {trialShades.map((ts, i) => (
+                      <div key={ts.id} className="bg-nude-50 rounded-xl p-3 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-nude-600">試色 {i + 1}</span>
+                          {trialShades.length > 1 && (
+                            <button
+                              onClick={() => setTrialShades((prev) => prev.filter((_, idx) => idx !== i))}
+                              className="text-nude-400 hover:text-red-500 transition-colors"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            className="input-field text-xs"
+                            placeholder="品牌 e.g. NARS"
+                            value={ts.brand}
+                            onChange={(e) => setTrialShades((prev) => prev.map((s, idx) => idx === i ? { ...s, brand: e.target.value } : s))}
+                          />
+                          <input
+                            className="input-field text-xs"
+                            placeholder="產品名稱（選填）"
+                            value={ts.product}
+                            onChange={(e) => setTrialShades((prev) => prev.map((s, idx) => idx === i ? { ...s, product: e.target.value } : s))}
+                          />
+                        </div>
+                        <input
+                          className="input-field text-xs"
+                          placeholder="色號名稱 e.g. N25 / Syracuse"
+                          value={ts.shade_name}
+                          onChange={(e) => setTrialShades((prev) => prev.map((s, idx) => idx === i ? { ...s, shade_name: e.target.value } : s))}
+                        />
+                        <div>
+                          <p className="text-xs text-nude-500 mb-1.5">試色結果</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {VERDICT_OPTIONS.map((v) => (
+                              <button
+                                key={v}
+                                onClick={() => setTrialShades((prev) => prev.map((s, idx) =>
+                                  idx === i ? { ...s, verdict: s.verdict === v ? null : v } : s
+                                ))}
+                                className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${
+                                  ts.verdict === v
+                                    ? 'bg-blush-500 text-white border-blush-500'
+                                    : 'bg-white text-nude-600 border-nude-200 hover:border-blush-300'
+                                }`}
+                              >
+                                {v}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={() => setTrialShades((prev) => [...prev, newTrialShade()])}
+                    className="flex items-center gap-1.5 text-sm text-blush-500 hover:text-blush-700 transition-colors"
+                  >
+                    <Plus size={15} />
+                    新增試色
+                  </button>
+                </div>
+              )}
+
+              {/* Step 3: Photos */}
+              {surveyStep === 3 && (
                 <div className="space-y-4">
                   <div className="bg-blush-50 rounded-xl p-3 text-sm text-nude-700 space-y-1">
                     <p>💡 上傳照片讓 AI 分析你的膚色。</p>
-                    <p className="text-xs text-nude-500">建議：自然光下拍攝、不化妝或淡妝。若有底妝試色照，可在下方填入色號，AI 會一起分析哪個色號最適合你。</p>
+                    <p className="text-xs text-nude-500">建議：自然光下拍攝、不化妝或淡妝。若有底妝試色照，可填入色號，AI 會一起分析。</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -578,9 +763,9 @@ export default function ProfilePage() {
                           <Image src={photo.preview} alt={`試色 ${i + 1}`} fill className="object-cover" />
                           <button
                             onClick={() => setPhotos((prev) => prev.filter((_, idx) => idx !== i))}
-                            className="absolute top-1 right-1 w-6 h-6 bg-black/50 text-white rounded-full text-sm flex items-center justify-center"
+                            className="absolute top-1 right-1 w-6 h-6 bg-black/50 text-white rounded-full flex items-center justify-center"
                           >
-                            ×
+                            <X size={12} />
                           </button>
                         </div>
                         <input
@@ -592,12 +777,11 @@ export default function ProfilePage() {
                         />
                       </div>
                     ))}
-
                     <button
                       onClick={() => fileRef.current?.click()}
                       className="aspect-square rounded-xl border-2 border-dashed border-nude-300 hover:border-blush-400 flex flex-col items-center justify-center gap-1 text-nude-400 hover:text-blush-500 transition-colors"
                     >
-                      {uploadingIdx ? (
+                      {uploadingPhoto ? (
                         <div className="w-6 h-6 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
                       ) : (
                         <>
@@ -607,7 +791,6 @@ export default function ProfilePage() {
                       )}
                     </button>
                   </div>
-
                   <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={async (e) => {
                     const files = Array.from(e.target.files || [])
                     for (const file of files) await handleAddPhoto(file)
@@ -615,8 +798,8 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {/* Step 3: Result */}
-              {surveyStep === 3 && profile && (
+              {/* Done: result preview + add to library */}
+              {surveyStep === 'done' && profile && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-blush-50 rounded-xl p-4 text-center">
@@ -634,6 +817,36 @@ export default function ProfilePage() {
                       <p className="text-sm text-nude-800 leading-relaxed">{profile.color_analysis_summary}</p>
                     </div>
                   )}
+
+                  {/* Add trial shades to library */}
+                  {addableShades.length > 0 && (
+                    <div className="border-t border-nude-100 pt-4 space-y-3">
+                      <p className="text-xs font-medium text-nude-700">將試色記錄加入化妝品庫</p>
+                      {addableShades.map((ts) => (
+                        <div key={ts.id} className="flex items-center justify-between gap-2 bg-nude-50 rounded-xl p-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-nude-800 truncate">
+                              {ts.brand}{ts.product ? ` ${ts.product}` : ''}
+                            </p>
+                            <p className="text-xs text-nude-500">
+                              {ts.shade_name || '（無色號）'}{ts.verdict ? ` · ${ts.verdict}` : ''}
+                            </p>
+                          </div>
+                          {addedToLibrary[ts.id] ? (
+                            <span className="text-xs text-emerald-600 font-medium flex-shrink-0">✓ 已加入</span>
+                          ) : (
+                            <button
+                              onClick={() => addToLibrary(ts)}
+                              disabled={addingToLibrary[ts.id]}
+                              className="btn-secondary text-xs flex-shrink-0 py-1 px-3"
+                            >
+                              {addingToLibrary[ts.id] ? '加入中…' : '加入'}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -649,17 +862,27 @@ export default function ProfilePage() {
               {surveyStep === 2 && (
                 <>
                   <button onClick={() => setSurveyStep(1)} className="btn-secondary">← 上一步</button>
-                  <button onClick={handleAnalyze} disabled={analyzing || photos.length === 0} className="btn-primary flex-1">
+                  <button onClick={goToStep3} className="btn-primary flex-1">下一步 →</button>
+                </>
+              )}
+              {surveyStep === 3 && (
+                <>
+                  <button onClick={() => setSurveyStep(2)} className="btn-secondary">← 上一步</button>
+                  <button
+                    onClick={runAnalysis}
+                    disabled={analyzing || photos.length === 0}
+                    className="btn-primary flex-1"
+                  >
                     {analyzing ? (
                       <span className="flex items-center gap-2 justify-center">
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         AI 分析中…
                       </span>
-                    ) : '🤖 開始 AI 分析'}
+                    ) : `🤖 開始 AI 分析${photos.length === 0 ? '（請先上傳照片）' : ''}`}
                   </button>
                 </>
               )}
-              {surveyStep === 3 && (
+              {surveyStep === 'done' && (
                 <button onClick={() => setShowSurvey(false)} className="btn-primary flex-1">完成 ✓</button>
               )}
             </div>

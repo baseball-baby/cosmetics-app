@@ -64,7 +64,15 @@ export async function POST(req: NextRequest) {
   const userId = req.cookies.get('cosmetics_user')?.value
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json() as { question?: string; type?: string; category?: string; budget?: number }
+  const body = await req.json() as {
+    question?: string
+    type?: string
+    category?: string
+    budget?: number
+    price_min?: number
+    price_max?: number
+    requirements?: string[]
+  }
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -89,23 +97,28 @@ export async function POST(req: NextRequest) {
 
   // ── Recommendation mode ──
   if (body.type === 'recommend') {
-    const { category, budget } = body
+    const { category, price_min, price_max, requirements } = body
     if (!category) return NextResponse.json({ error: 'category required' }, { status: 400 })
 
-    const budgetText = budget ? `NT$ ${budget} 以內` : '不限'
+    const priceText = !price_min && !price_max
+      ? '不限'
+      : `NT$ ${(price_min ?? 0).toLocaleString()} ～ ${price_max ? `${price_max.toLocaleString()} 以內` : '不限'}`
+    const requirementsText = requirements && requirements.length > 0 ? requirements.join('、') : ''
+
     let searchContext = ''
     try {
-      const results = await searchTavily(`${category} 推薦 ${budget ? `預算${budget}` : ''} 台灣 購買`, 5)
+      const q = `${category} ${requirementsText} 推薦 ${price_max ? `預算${price_max}` : ''} 台灣 購買`
+      const results = await searchTavily(q, 5)
       searchContext = results.map((r) => `${r.title}: ${r.content}${r.url ? ` (${r.url})` : ''}`).join('\n').slice(0, 2000)
     } catch {}
 
-    const prompt = `你是一位專業彩妝顧問。根據使用者的膚況檔案和預算，推薦最適合的${category}產品。
+    const prompt = `你是一位專業彩妝顧問。根據使用者的膚況檔案和需求，推薦最適合的${category}產品。
 
 使用者膚況檔案：
 ${profileContext}${shadeNotesContext}
 
 品類：${category}
-預算：${budgetText}
+預算：${priceText}${requirementsText ? `\n特定需求：${requirementsText}` : ''}
 
 網路參考資料：
 ${searchContext || '（無搜尋結果）'}

@@ -49,16 +49,78 @@ const EXAMPLE_QUESTIONS = [
   'Giorgio Armani Luminous Silk Foundation 推薦哪個號碼？',
 ]
 
-const BUDGET_OPTIONS = [500, 1000, 1500, 2000, 3000]
+const PRICE_MAX = 3000
 
-// Exclude non-product categories from recommendation
+const CATEGORY_FILTERS: Record<string, { label: string; options: string[] }[]> = {
+  '粉底/遮瑕': [
+    { label: '遮瑕力', options: ['輕透', '中遮瑕', '高遮瑕'] },
+    { label: '妝感', options: ['光澤感', '霧面', '自然妝感'] },
+  ],
+  '眼影': [
+    { label: '質地', options: ['啞光', '珠光', '亮片'] },
+  ],
+  '眼線': [
+    { label: '特性', options: ['防水', '一般'] },
+  ],
+  '睫毛膏': [
+    { label: '效果', options: ['加長', '濃密', '捲翹'] },
+    { label: '持妝', options: ['防水', '溫水可卸'] },
+  ],
+  '口紅/唇釉': [
+    { label: '妝感', options: ['霧面', '緞面', '亮面', '玻璃唇'] },
+    { label: '特性', options: ['保濕', '持妝'] },
+  ],
+  '腮紅/修容': [
+    { label: '妝感', options: ['霧面', '珠光'] },
+  ],
+  '打亮': [
+    { label: '妝感', options: ['霧光', '珠光', '閃爍'] },
+  ],
+  '定妝': [
+    { label: '類型', options: ['蜜粉', '蜜粉餅', '定妝噴霧'] },
+    { label: '效果', options: ['控油', '保濕'] },
+  ],
+  '眉筆': [
+    { label: '效果', options: ['自然', '立體', '防水'] },
+  ],
+}
+
+// Dual-range slider
+function DualRangeSlider({ min, max, step = 100, valueMin, valueMax, onChange }: {
+  min: number; max: number; step?: number
+  valueMin: number; valueMax: number
+  onChange: (lo: number, hi: number) => void
+}) {
+  const pct = (v: number) => ((v - min) / (max - min)) * 100
+  return (
+    <div className="relative pt-3 pb-1">
+      <div className="relative h-2 bg-nude-200 rounded-full">
+        <div
+          className="absolute h-full bg-blush-400 rounded-full"
+          style={{ left: `${pct(valueMin)}%`, right: `${100 - pct(valueMax)}%` }}
+        />
+      </div>
+      <input
+        type="range" min={min} max={max} step={step} value={valueMin}
+        className="range-dual absolute top-1 w-full"
+        onChange={(e) => onChange(Math.min(Number(e.target.value), valueMax - step), valueMax)}
+      />
+      <input
+        type="range" min={min} max={max} step={step} value={valueMax}
+        className="range-dual absolute top-1 w-full"
+        onChange={(e) => onChange(valueMin, Math.max(Number(e.target.value), valueMin + step))}
+      />
+    </div>
+  )
+}
+
 const PRODUCT_CATEGORIES = CATEGORIES.filter((c) => c !== '其他')
 
 export default function AdvicePage() {
   const [mode, setMode] = useState<'advice' | 'recommend'>('advice')
   const [profile, setProfile] = useState<UserProfile | null>(null)
 
-  // Advice mode state
+  // Advice mode
   const [question, setQuestion] = useState('')
   const [result, setResult] = useState<AdviceResult | null>(null)
   const [currentQuestion, setCurrentQuestion] = useState('')
@@ -68,11 +130,16 @@ export default function AdvicePage() {
   const [correction, setCorrection] = useState('')
   const [submittingFeedback, setSubmittingFeedback] = useState(false)
 
-  // Recommend mode state
+  // Recommend mode
   const [recCategory, setRecCategory] = useState<string>(PRODUCT_CATEGORIES[0])
-  const [recBudget, setRecBudget] = useState<number | ''>('')
+  const [priceMin, setPriceMin] = useState(0)
+  const [priceMax, setPriceMax] = useState(PRICE_MAX)
+  const [selectedFilters, setSelectedFilters] = useState<string[]>([])
   const [recResult, setRecResult] = useState<RecommendResult | null>(null)
   const [recLoading, setRecLoading] = useState(false)
+
+  // Reset filters when category changes
+  useEffect(() => { setSelectedFilters([]) }, [recCategory])
 
   useEffect(() => {
     fetch('/api/profile')
@@ -82,6 +149,12 @@ export default function AdvicePage() {
   }, [])
 
   const hasProfile = profile?.undertone || profile?.depth
+
+  function toggleFilter(option: string) {
+    setSelectedFilters((prev) =>
+      prev.includes(option) ? prev.filter((f) => f !== option) : [...prev, option]
+    )
+  }
 
   async function handleSubmit() {
     if (!question.trim()) return
@@ -112,7 +185,13 @@ export default function AdvicePage() {
       const res = await fetch('/api/advice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'recommend', category: recCategory, budget: recBudget || undefined }),
+        body: JSON.stringify({
+          type: 'recommend',
+          category: recCategory,
+          price_min: priceMin > 0 ? priceMin : undefined,
+          price_max: priceMax < PRICE_MAX ? priceMax : undefined,
+          requirements: selectedFilters,
+        }),
       })
       const data = await res.json() as RecommendResult
       setRecResult(data)
@@ -139,6 +218,8 @@ export default function AdvicePage() {
     setHistory((prev) => prev.map((item, i) => i === 0 ? { ...item, feedback: 'good' } : item))
   }
 
+  const categoryFilters = CATEGORY_FILTERS[recCategory] || []
+
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
@@ -146,7 +227,6 @@ export default function AdvicePage() {
         <p className="text-sm text-nude-500 mt-0.5">AI 幫你分析色號、推薦產品</p>
       </div>
 
-      {/* Profile banner */}
       {!hasProfile && (
         <div className="card p-4 bg-amber-50 border border-amber-100 flex items-center justify-between gap-4">
           <div>
@@ -311,7 +391,8 @@ export default function AdvicePage() {
       {/* ── Recommend mode ── */}
       {mode === 'recommend' && (
         <>
-          <div className="card p-5 space-y-4">
+          <div className="card p-5 space-y-5">
+            {/* Category */}
             <div>
               <label className="label">想買什麼品類？</label>
               <select
@@ -325,26 +406,55 @@ export default function AdvicePage() {
               </select>
             </div>
 
-            <div>
-              <label className="label">預算（選填）</label>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => setRecBudget('')}
-                  className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${recBudget === '' ? 'bg-blush-500 text-white border-blush-500' : 'bg-white text-nude-600 border-nude-200 hover:border-blush-300'}`}
-                >
-                  不限
-                </button>
-                {BUDGET_OPTIONS.map((b) => (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => setRecBudget(b)}
-                    className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${recBudget === b ? 'bg-blush-500 text-white border-blush-500' : 'bg-white text-nude-600 border-nude-200 hover:border-blush-300'}`}
-                  >
-                    NT$ {b.toLocaleString()}
-                  </button>
+            {/* Category-specific filters */}
+            {categoryFilters.length > 0 && (
+              <div className="space-y-3">
+                {categoryFilters.map((group) => (
+                  <div key={group.label}>
+                    <label className="label">{group.label}</label>
+                    <div className="flex flex-wrap gap-2">
+                      {group.options.map((opt) => (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => toggleFilter(opt)}
+                          className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${
+                            selectedFilters.includes(opt)
+                              ? 'bg-blush-500 text-white border-blush-500'
+                              : 'bg-white text-nude-600 border-nude-200 hover:border-blush-300 hover:bg-blush-50'
+                          }`}
+                        >
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
+              </div>
+            )}
+
+            {/* Price range */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="label mb-0">預算範圍</label>
+                <span className="text-xs font-medium text-blush-600">
+                  {priceMin === 0 && priceMax === PRICE_MAX
+                    ? '不限'
+                    : `NT$ ${priceMin.toLocaleString()} ～ ${priceMax === PRICE_MAX ? `${PRICE_MAX.toLocaleString()}+` : priceMax.toLocaleString()}`
+                  }
+                </span>
+              </div>
+              <DualRangeSlider
+                min={0}
+                max={PRICE_MAX}
+                step={100}
+                valueMin={priceMin}
+                valueMax={priceMax}
+                onChange={(lo, hi) => { setPriceMin(lo); setPriceMax(hi) }}
+              />
+              <div className="flex justify-between text-xs text-nude-400 mt-1">
+                <span>NT$ 0</span>
+                <span>NT$ 3,000+</span>
               </div>
             </div>
 

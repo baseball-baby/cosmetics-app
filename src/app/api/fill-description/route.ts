@@ -4,14 +4,21 @@ import { supabase } from '@/lib/db'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-async function searchProductImage(brand: string, name: string): Promise<string | null> {
+// Categories where shade-specific image search makes sense
+const SHADE_IMAGE_CATEGORIES = ['口紅/唇釉', '腮紅/修容', '眼影']
+
+async function searchProductImage(brand: string, name: string, category: string, shadeName?: string): Promise<string | null> {
   try {
+    const useShade = shadeName && SHADE_IMAGE_CATEGORIES.includes(category)
+    const query = useShade
+      ? `${brand} ${name} ${shadeName} shade swatch color`
+      : `${brand} ${name} product image official`
     const res = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         api_key: process.env.TAVILY_API_KEY,
-        query: `${brand} ${name} product image official`,
+        query,
         search_depth: 'basic',
         max_results: 3,
         include_images: true,
@@ -48,7 +55,7 @@ async function downloadImage(url: string): Promise<string | null> {
 }
 
 export async function POST(req: NextRequest) {
-  const { brand, name, category, hasPhotos } = await req.json()
+  const { brand, name, category, hasPhotos, shade_name } = await req.json()
   if (!brand || !name) return NextResponse.json({ error: 'brand and name required' }, { status: 400 })
 
   const prompt = `你是一位美妝產品資料庫專家。請根據以下產品資訊，用繁體中文提供官方描述和品牌定位。
@@ -71,7 +78,7 @@ export async function POST(req: NextRequest) {
       max_tokens: 400,
       messages: [{ role: 'user', content: prompt }],
     }),
-    !hasPhotos ? searchProductImage(brand, name) : Promise.resolve(null),
+    !hasPhotos ? searchProductImage(brand, name, category || '', shade_name || '') : Promise.resolve(null),
   ])
 
   const text = (response.content[0] as Anthropic.TextBlock).text.trim()

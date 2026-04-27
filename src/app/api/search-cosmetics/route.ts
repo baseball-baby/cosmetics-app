@@ -23,7 +23,7 @@ const POPULAR_BRANDS = [
   'Anna Sui', 'Etvos', 'Amplitude', 'Whomee', 'FLOWFUSHI',
 ]
 
-async function searchTavily(query: string, maxResults = 5) {
+async function searchTavily(query: string, maxResults = 5, includeImages = false) {
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -32,10 +32,14 @@ async function searchTavily(query: string, maxResults = 5) {
       query,
       search_depth: 'basic',
       max_results: maxResults,
+      include_images: includeImages,
     }),
   })
   const data = await res.json()
-  return (data.results || []) as { title: string; content: string }[]
+  return {
+    results: (data.results || []) as { title: string; content: string }[],
+    images: (data.images || []) as string[],
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -43,6 +47,7 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get('type')
   const q = searchParams.get('q')?.trim() || ''
   const brand = searchParams.get('brand')?.trim() || ''
+  const product = searchParams.get('product')?.trim() || ''
 
   if (!q || q.length < 2) return NextResponse.json([])
 
@@ -55,9 +60,8 @@ export async function GET(req: NextRequest) {
 
     if (local.length >= 3) return NextResponse.json(local)
 
-    // Fall back to Tavily if local results are sparse
     try {
-      const results = await searchTavily(`${q} makeup cosmetics brand name`, 3)
+      const { results } = await searchTavily(`${q} makeup cosmetics brand name`, 3)
       const snippets = results.map((r) => `${r.title}\n${r.content}`).join('\n\n').slice(0, 2000)
       const resp = await client.messages.create({
         model: 'claude-sonnet-4-20250514',
@@ -81,7 +85,7 @@ export async function GET(req: NextRequest) {
   // Product autocomplete (requires brand)
   if (type === 'product' && brand) {
     try {
-      const results = await searchTavily(`${brand} ${q} makeup product cosmetics`, 5)
+      const { results, images } = await searchTavily(`${brand} ${q} makeup product cosmetics`, 5, true)
       const snippets = results.map((r) => `${r.title}\n${r.content}`).join('\n\n').slice(0, 3000)
 
       const resp = await client.messages.create({
@@ -101,7 +105,46 @@ ${snippets}`,
       })
       const text = (resp.content[0] as Anthropic.TextBlock).text.trim()
       const match = text.match(/\[[\s\S]*\]/)
-      return NextResponse.json(match ? JSON.parse(match[0]) : [])
+      const products: { name: string; category: string }[] = match ? JSON.parse(match[0]) : []
+
+      // Attach images best-effort (one per product by index)
+      const withImages = products.map((p, i) => ({ ...p, image: images[i] || null }))
+      return NextResponse.json(withImages)
+    } catch {
+      return NextResponse.json([])
+    }
+  }
+
+  // Shade autocomplete (requires brand + product)
+  if (type === 'shade' && brand && product) {
+    try {
+      const { results, images } = await searchTavily(
+        `${brand} ${product} shade ${q} swatch color`,
+        5,
+        true,
+      )
+      const snippets = results.map((r) => `${r.title}\n${r.content}`).join('\n\n').slice(0, 2500)
+
+      const resp = await client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 300,
+        messages: [{
+          role: 'user',
+          content: `From these search results about "${brand} ${product}", extract up to 8 real shade names matching or starting with "${q}".
+
+Return ONLY a JSON array of shade name strings, e.g. ["Syracuse", "Barcelona", "Heat Wave"].
+Only include real shade names for this product. If none match, return [].
+
+Search results:
+${snippets}`,
+        }],
+      })
+      const text = (resp.content[0] as Anthropic.TextBlock).text.trim()
+      const match = text.match(/\[[\s\S]*\]/)
+      const shades: string[] = match ? JSON.parse(match[0]) : []
+
+      const withImages = shades.map((name, i) => ({ name, image: images[i] || null }))
+      return NextResponse.json(withImages)
     } catch {
       return NextResponse.json([])
     }

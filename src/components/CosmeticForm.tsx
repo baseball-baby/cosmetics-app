@@ -1,16 +1,40 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Cosmetic, CATEGORIES } from '@/lib/types'
 import BarcodeScanner from './BarcodeScanner'
 import AutoResizeTextarea from './AutoResizeTextarea'
-import { ScanBarcode, Sparkles, ImagePlus, X } from 'lucide-react'
+import { ScanBarcode, Sparkles, ImagePlus, X, Info } from 'lucide-react'
 
 interface Props {
   initial?: Partial<Cosmetic>
   onSuccess?: (cosmetic: Cosmetic) => void
+}
+
+function DismissibleTip({ storageKey, children }: { storageKey: string; children: React.ReactNode }) {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    if (!localStorage.getItem(storageKey)) setVisible(true)
+  }, [storageKey])
+
+  if (!visible) return null
+
+  return (
+    <div className="flex items-start gap-2 bg-blush-50 border border-blush-200 rounded-xl px-3 py-2.5 text-xs text-blush-700">
+      <Info size={13} className="flex-shrink-0 mt-0.5" />
+      <span className="flex-1">{children}</span>
+      <button
+        type="button"
+        onClick={() => { localStorage.setItem(storageKey, '1'); setVisible(false) }}
+        className="flex-shrink-0 text-blush-400 hover:text-blush-600 transition-colors"
+      >
+        <X size={13} />
+      </button>
+    </div>
+  )
 }
 
 export default function CosmeticForm({ initial, onSuccess }: Props) {
@@ -24,12 +48,16 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const [brandSuggestions, setBrandSuggestions] = useState<string[]>([])
-  const [productSuggestions, setProductSuggestions] = useState<{ name: string; category: string }[]>([])
+  const [productSuggestions, setProductSuggestions] = useState<{ name: string; category: string; image: string | null }[]>([])
+  const [shadeSuggestions, setShadeSuggestions] = useState<{ name: string; image: string | null }[]>([])
   const [showBrandDrop, setShowBrandDrop] = useState(false)
   const [showProductDrop, setShowProductDrop] = useState(false)
+  const [showShadeDrop, setShowShadeDrop] = useState(false)
   const [productSearching, setProductSearching] = useState(false)
+  const [shadeSearching, setShadeSearching] = useState(false)
   const brandTimer = useRef<ReturnType<typeof setTimeout>>()
   const productTimer = useRef<ReturnType<typeof setTimeout>>()
+  const shadeTimer = useRef<ReturnType<typeof setTimeout>>()
 
   const initPhoto = (() => {
     if (initial?.photo_urls) {
@@ -45,7 +73,6 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
     name: initial?.name || '',
     category: initial?.category || '其他',
     shade_name: initial?.shade_name || '',
-    shade_description: initial?.shade_description || '',
     official_description: initial?.official_description || '',
     official_positioning: initial?.official_positioning || '',
     personal_notes: initial?.personal_notes || '',
@@ -76,11 +103,26 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
     setProductSearching(true)
     productTimer.current = setTimeout(async () => {
       const res = await fetch(`/api/search-cosmetics?type=product&q=${encodeURIComponent(q)}&brand=${encodeURIComponent(brand)}`)
-      const data: { name: string; category: string }[] = await res.json()
+      const data: { name: string; category: string; image: string | null }[] = await res.json()
       setProductSuggestions(data)
       setShowProductDrop(data.length > 0)
       setProductSearching(false)
     }, 600)
+  }
+
+  function searchShades(q: string, brand: string, product: string) {
+    clearTimeout(shadeTimer.current)
+    if (q.length < 1 || !brand || !product) { setShadeSuggestions([]); setShowShadeDrop(false); return }
+    setShadeSearching(true)
+    shadeTimer.current = setTimeout(async () => {
+      const res = await fetch(
+        `/api/search-cosmetics?type=shade&q=${encodeURIComponent(q)}&brand=${encodeURIComponent(brand)}&product=${encodeURIComponent(product)}`
+      )
+      const data: { name: string; image: string | null }[] = await res.json()
+      setShadeSuggestions(data)
+      setShowShadeDrop(data.length > 0)
+      setShadeSearching(false)
+    }, 700)
   }
 
   async function handleUpload(file: File) {
@@ -103,7 +145,13 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
       const res = await fetch('/api/fill-description', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brand: form.brand, name: form.name, category: form.category, hasPhotos: !!photo }),
+        body: JSON.stringify({
+          brand: form.brand,
+          name: form.name,
+          category: form.category,
+          hasPhotos: !!photo,
+          shade_name: form.shade_name || undefined,
+        }),
       })
       const data = await res.json()
       if (data.official_description) set('official_description', data.official_description)
@@ -185,6 +233,11 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
 
       <form onSubmit={handleSubmit} className="space-y-6">
 
+        {/* Tip 1: completeness tip */}
+        <DismissibleTip storageKey="tip_form_quality">
+          填寫完整品牌、產品名稱、色號，可增加 AI 填入資訊的正確度喔！
+        </DismissibleTip>
+
         {/* ── 上半部：使用者自填 ── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
@@ -249,10 +302,17 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
                   {productSuggestions.map((p) => (
                     <button key={p.name} type="button"
                       onMouseDown={() => { set('name', p.name); set('category', p.category); setShowProductDrop(false) }}
-                      className="w-full px-4 py-2.5 text-left hover:bg-blush-50 transition-colors"
+                      className="w-full px-3 py-2 text-left hover:bg-blush-50 transition-colors flex items-center gap-2.5"
                     >
-                      <span className="text-sm text-nude-800">{p.name}</span>
-                      <span className="text-xs text-nude-400 ml-2">{p.category}</span>
+                      {p.image ? (
+                        <img src={p.image} alt={p.name} className="w-7 h-7 rounded object-cover flex-shrink-0 bg-nude-100" />
+                      ) : (
+                        <div className="w-7 h-7 rounded bg-nude-100 flex-shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <span className="text-sm text-nude-800 block truncate">{p.name}</span>
+                        <span className="text-xs text-nude-400">{p.category}</span>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -269,14 +329,40 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
           </select>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="label">色號名稱</label>
-            <input className="input-field" value={form.shade_name} onChange={(e) => set('shade_name', e.target.value)} placeholder="e.g. Syracuse" />
-          </div>
-          <div>
-            <label className="label">顏色描述</label>
-            <input className="input-field" value={form.shade_description} onChange={(e) => set('shade_description', e.target.value)} placeholder="e.g. 暖米棕色" />
+        <div>
+          <label className="label">色號名稱</label>
+          <div className="relative">
+            <input
+              className="input-field"
+              value={form.shade_name}
+              autoComplete="off"
+              onChange={(e) => { set('shade_name', e.target.value); searchShades(e.target.value, form.brand, form.name) }}
+              onBlur={() => setTimeout(() => setShowShadeDrop(false), 150)}
+              onFocus={() => shadeSuggestions.length > 0 && setShowShadeDrop(true)}
+              placeholder="e.g. Syracuse"
+            />
+            {shadeSearching && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <div className="w-3.5 h-3.5 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+            {showShadeDrop && (
+              <div className="absolute z-20 w-full bg-white border border-nude-200 rounded-xl shadow-lg mt-1 overflow-hidden max-h-48 overflow-y-auto">
+                {shadeSuggestions.map((s) => (
+                  <button key={s.name} type="button"
+                    onMouseDown={() => { set('shade_name', s.name); setShowShadeDrop(false) }}
+                    className="w-full px-3 py-2 text-left hover:bg-blush-50 transition-colors flex items-center gap-2.5"
+                  >
+                    {s.image ? (
+                      <img src={s.image} alt={s.name} className="w-7 h-7 rounded object-cover flex-shrink-0 bg-nude-100" />
+                    ) : (
+                      <div className="w-7 h-7 rounded bg-nude-100 flex-shrink-0" />
+                    )}
+                    <span className="text-sm text-nude-800">{s.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -323,6 +409,11 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
               )}
             </button>
           </div>
+
+          {/* Tip 2: AI fill explanation */}
+          <DismissibleTip storageKey="tip_ai_fill">
+            點擊「AI 幫我填入」，系統會自動搜尋官方產品描述、品牌定位，以及產品封面照片（若尚未上傳）。
+          </DismissibleTip>
 
           {/* Photo + descriptions side by side */}
           <div className="flex gap-4 items-start">

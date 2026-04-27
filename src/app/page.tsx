@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { Cosmetic, CATEGORIES, CATEGORY_EMOJIS } from '@/lib/types'
 import CosmeticCard from '@/components/CosmeticCard'
@@ -22,6 +22,24 @@ export default function HomePage() {
   const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC')
   const [showStats, setShowStats] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [subTag, setSubTag] = useState('')
+
+  // Reset sub-tag when category changes
+  useEffect(() => { setSubTag('') }, [category])
+
+  // Available sub-tags for the selected category, derived from allCosmetics
+  const availableSubTags = useMemo(() => {
+    if (category === '全部') return []
+    const tagSet = new Set<string>()
+    allCosmetics
+      .filter((c) => c.category === category)
+      .forEach((c) => {
+        if (c.sub_tags) {
+          try { (JSON.parse(c.sub_tags) as string[]).forEach((t) => tagSet.add(t)) } catch {}
+        }
+      })
+    return Array.from(tagSet).sort()
+  }, [allCosmetics, category])
 
   // Fetch filtered list
   const fetchCosmetics = useCallback(async () => {
@@ -29,11 +47,12 @@ export default function HomePage() {
     const params = new URLSearchParams({ sort, order })
     if (category !== '全部') params.set('category', category)
     if (search) params.set('search', search)
+    if (subTag) params.set('sub_tag', subTag)
     const res = await fetch(`/api/cosmetics?${params}`)
     const data = await res.json()
     setCosmetics(data)
     setLoading(false)
-  }, [category, search, sort, order])
+  }, [category, search, sort, order, subTag])
 
   // Fetch all for stats
   useEffect(() => {
@@ -219,6 +238,23 @@ export default function HomePage() {
           </button>
         ))}
       </div>
+
+      {/* Sub-tag filter */}
+      {availableSubTags.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 -mt-2">
+          <button
+            onClick={() => setSubTag('')}
+            className={`pill whitespace-nowrap flex-shrink-0 text-xs ${!subTag ? 'pill-active' : 'pill-inactive'}`}
+          >全部</button>
+          {availableSubTags.map((tag) => (
+            <button
+              key={tag}
+              onClick={() => setSubTag(subTag === tag ? '' : tag)}
+              className={`pill whitespace-nowrap flex-shrink-0 text-xs ${subTag === tag ? 'pill-active' : 'pill-inactive'}`}
+            >{tag}</button>
+          ))}
+        </div>
+      )}
 
       {/* Sort */}
       <div className="flex gap-2 items-center">
