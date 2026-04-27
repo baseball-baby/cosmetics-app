@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { getDb } from '@/lib/db'
 import type { ShadeNote } from '@/lib/types'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -63,9 +61,8 @@ function buildProfileContext(profile: UserProfile | undefined): string {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const userId = session.user.id
+  const userId = req.cookies.get('cosmetics_user')?.value
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as { question?: string; type?: string; category?: string; budget?: number }
   const db = getDb()
@@ -194,9 +191,8 @@ ${searchContext || '（無搜尋結果）'}
 }
 
 export async function PUT(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const userId = session.user.id
+  const userId = req.cookies.get('cosmetics_user')?.value
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { question, ai_answer, user_correction } = await req.json() as {
     question: string

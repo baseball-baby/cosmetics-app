@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 
 const BLANK_PROFILE = {
   skin_tone_description: null,
@@ -18,18 +16,17 @@ const BLANK_PROFILE = {
   updated_at: new Date().toISOString(),
 }
 
-export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function GET(req: NextRequest) {
+  const userId = req.cookies.get('cosmetics_user')?.value
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const db = getDb()
-  const row = db.prepare('SELECT * FROM user_profiles WHERE user_id = ?').get(session.user.id)
-  return NextResponse.json(row ?? { ...BLANK_PROFILE, user_id: session.user.id })
+  const row = db.prepare('SELECT * FROM user_profiles WHERE user_id = ?').get(userId)
+  return NextResponse.json(row ?? { ...BLANK_PROFILE, user_id: userId })
 }
 
 export async function PUT(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const userId = session.user.id
+  const userId = req.cookies.get('cosmetics_user')?.value
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const db = getDb()
   const body = await req.json()
 
@@ -70,9 +67,8 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const userId = session.user.id
+  const userId = req.cookies.get('cosmetics_user')?.value
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const db = getDb()
   const body = await req.json() as { shade_notes: unknown[] }
 

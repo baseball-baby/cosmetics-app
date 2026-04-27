@@ -3,15 +3,12 @@ import { getDb, UPLOADS_DIR_PATH } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
 import fs from 'fs'
 import path from 'path'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const userId = session.user.id
+  const userId = req.cookies.get('cosmetics_user')?.value
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const db = getDb()
   const body = await req.json()

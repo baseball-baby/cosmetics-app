@@ -1,22 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
-import { getDb } from '@/lib/db'
 
-export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const db = getDb()
-  const row = db.prepare('SELECT id, email, display_name, created_at FROM users WHERE id = ?').get(session.user.id)
-  return NextResponse.json(row)
+export async function GET(req: NextRequest) {
+  const name = req.cookies.get('cosmetics_user')?.value
+  if (!name) return NextResponse.json({ error: 'Not logged in' }, { status: 401 })
+  return NextResponse.json({ name })
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { display_name } = await req.json()
-  if (!display_name?.trim()) return NextResponse.json({ error: 'display_name required' }, { status: 400 })
-  const db = getDb()
-  db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(display_name.trim(), session.user.id)
-  return NextResponse.json({ ok: true })
+  const { name } = await req.json()
+  if (!name?.trim()) return NextResponse.json({ error: 'name required' }, { status: 400 })
+  const res = NextResponse.json({ ok: true })
+  res.cookies.set('cosmetics_user', name.trim(), {
+    httpOnly: false, // readable by JS for display
+    maxAge: 60 * 60 * 24 * 365,
+    path: '/',
+    sameSite: 'lax',
+  })
+  return res
+}
+
+export async function DELETE() {
+  const res = NextResponse.json({ ok: true })
+  res.cookies.delete('cosmetics_user')
+  return res
 }

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useSession, signOut } from 'next-auth/react'
+import { useEffect, useState } from 'react'
 
 const navItems = [
   { href: '/', label: '化妝品庫', icon: '💄' },
@@ -14,9 +14,17 @@ const navItems = [
 
 export default function Navigation() {
   const pathname = usePathname()
-  const { data: session } = useSession()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const displayName = (session?.user as any)?.displayName as string | null
+  const [displayName, setDisplayName] = useState<string | null>(null)
+
+  useEffect(() => {
+    const match = document.cookie.match(/(?:^|;\s*)cosmetics_user=([^;]+)/)
+    if (match) setDisplayName(decodeURIComponent(match[1]))
+  }, [])
+
+  async function handleLogout() {
+    await fetch('/api/user', { method: 'DELETE' })
+    window.location.href = '/login'
+  }
 
   return (
     <>
@@ -54,7 +62,7 @@ export default function Navigation() {
 
         <div className="px-6 py-4 border-t border-nude-100">
           <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
+            onClick={handleLogout}
             className="text-xs text-nude-400 hover:text-nude-600 transition-colors flex items-center gap-1.5"
           >
             <span>↩</span> 登出
