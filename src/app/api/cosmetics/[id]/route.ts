@@ -4,6 +4,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import fs from 'fs'
 import path from 'path'
 import { UPLOADS_DIR_PATH } from '@/lib/db'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -19,38 +21,11 @@ const CATEGORY_TAG_HINTS: Record<string, string> = {
   '定妝': '效果（控油/保濕/霧面/持妝）',
 }
 
-async function autoFill(brand: string, name: string, category: string): Promise<{ official_description: string; official_positioning: string } | null> {
-  try {
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 400,
-      messages: [{
-        role: 'user',
-        content: `你是一位美妝產品資料庫專家。請根據以下產品資訊，用繁體中文提供官方描述和品牌定位。
-
-品牌：${brand}
-產品名稱：${name}
-類別：${category}
-
-請以 JSON 格式回傳：
-{"official_description":"產品功效與特色的官方描述（50-120字）","official_positioning":"品牌定位與風格（30-60字）"}
-
-如果不確定，根據品牌風格和產品名稱合理推測。只回傳 JSON。`,
-      }],
-    })
-    const text = (response.content[0] as Anthropic.TextBlock).text.trim()
-    const match = text.match(/\{[\s\S]*\}/)
-    return match ? JSON.parse(match[0]) : null
-  } catch {
-    return null
-  }
-}
-
-async function autoTag(id: number, brand: string, name: string, category: string, shade_name: string | null, official_description: string | null, official_positioning: string | null): Promise<string[]> {
+async function autoTag(id: number, userId: string, brand: string, name: string, category: string, shade_name: string | null, official_description: string | null, official_positioning: string | null): Promise<string[]> {
   const db = getDb()
   const existingRows = db.prepare(
-    'SELECT sub_tags FROM cosmetics WHERE category = ? AND id != ? AND sub_tags IS NOT NULL'
-  ).all(category, id) as { sub_tags: string }[]
+    'SELECT sub_tags FROM cosmetics WHERE category = ? AND id != ? AND user_id = ? AND sub_tags IS NOT NULL'
+  ).all(category, id, userId) as { sub_tags: string }[]
 
   const existingTags = existingRows
     .flatMap((r) => { try { return JSON.parse(r.sub_tags) as string[] } catch { return [] } })
@@ -86,57 +61,57 @@ ${existingLine}規則：優先沿用已有標籤，語意相同或高度相近�
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const db = getDb()
-  const row = db.prepare('SELECT * FROM cosmetics WHERE id = ?').get(Number(params.id))
+  const row = db.prepare('SELECT * FROM cosmetics WHERE id = ? AND user_id = ?').get(Number(params.id), session.user.id)
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json(row)
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = session.user.id
+
   const db = getDb()
   const body = await req.json()
   const id = Number(params.id)
 
+  // Verify ownership
+  const existing = db.prepare('SELECT id FROM cosmetics WHERE id = ? AND user_id = ?').get(id, userId)
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
   const photoUrls: string[] = body.photo_urls || (body.photo_url ? [body.photo_url] : [])
   const primaryPhoto = photoUrls[0] || null
-
-  // Auto-fill if official fields are empty
-  let officialDescription = body.official_description || null
-  let officialPositioning = body.official_positioning || null
-  if (!officialDescription && body.brand && body.name) {
-    const filled = await autoFill(body.brand, body.name, body.category)
-    if (filled) {
-      officialDescription = filled.official_description || null
-      officialPositioning = filled.official_positioning || null
-    }
-  }
 
   db.prepare(`
     UPDATE cosmetics SET
       brand = ?, name = ?, category = ?, shade_name = ?, shade_description = ?,
       official_description = ?, official_positioning = ?, personal_notes = ?,
       expiry_date = ?, purchase_date = ?, price = ?, photo_url = ?, photo_urls = ?
-    WHERE id = ?
+    WHERE id = ? AND user_id = ?
   `).run(
     body.brand,
     body.name,
     body.category,
     body.shade_name || null,
     body.shade_description || null,
-    officialDescription,
-    officialPositioning,
+    body.official_description || null,
+    body.official_positioning || null,
     body.personal_notes || null,
     body.expiry_date || null,
     body.purchase_date || null,
     body.price ? Number(body.price) : null,
     primaryPhoto,
     photoUrls.length > 0 ? JSON.stringify(photoUrls) : null,
-    id
+    id,
+    userId
   )
 
   // Auto-tag (best-effort, always re-run on edit)
   try {
-    const tags = await autoTag(id, body.brand, body.name, body.category, body.shade_name || null, officialDescription, officialPositioning)
+    const tags = await autoTag(id, userId, body.brand, body.name, body.category, body.shade_name || null, body.official_description || null, body.official_positioning || null)
     if (tags.length > 0) {
       db.prepare('UPDATE cosmetics SET sub_tags = ? WHERE id = ?').run(JSON.stringify(tags), id)
     }
@@ -147,8 +122,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = session.user.id
+
   const db = getDb()
-  const row = db.prepare('SELECT * FROM cosmetics WHERE id = ?').get(Number(params.id)) as { photo_url?: string; photo_urls?: string } | undefined
+  const row = db.prepare('SELECT * FROM cosmetics WHERE id = ? AND user_id = ?').get(Number(params.id), userId) as { photo_url?: string; photo_urls?: string } | undefined
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const urls: string[] = []
@@ -164,6 +143,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
   }
 
-  db.prepare('DELETE FROM cosmetics WHERE id = ?').run(Number(params.id))
+  db.prepare('DELETE FROM cosmetics WHERE id = ? AND user_id = ?').run(Number(params.id), userId)
   return NextResponse.json({ success: true })
 }

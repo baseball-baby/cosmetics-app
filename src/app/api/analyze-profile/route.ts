@@ -3,10 +3,16 @@ import { getDb, UPLOADS_DIR_PATH } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
 import fs from 'fs'
 import path from 'path'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = session.user.id
+
   const db = getDb()
   const body = await req.json()
   const { photos, shade_notes } = body as {
@@ -121,16 +127,21 @@ ${photoDescriptions}${shadeNotesContext}
   }
 
   db.prepare(`
-    UPDATE color_profile SET
-      undertone = ?,
-      undertone_confidence = ?,
-      depth = ?,
-      color_analysis_summary = ?,
-      suitable_foundation_shades = ?,
-      analysis_photo_urls = ?,
-      updated_at = datetime('now','localtime')
-    WHERE id = 1
+    INSERT INTO user_profiles (
+      user_id, undertone, undertone_confidence, depth,
+      color_analysis_summary, suitable_foundation_shades, analysis_photo_urls,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+    ON CONFLICT(user_id) DO UPDATE SET
+      undertone = excluded.undertone,
+      undertone_confidence = excluded.undertone_confidence,
+      depth = excluded.depth,
+      color_analysis_summary = excluded.color_analysis_summary,
+      suitable_foundation_shades = excluded.suitable_foundation_shades,
+      analysis_photo_urls = excluded.analysis_photo_urls,
+      updated_at = excluded.updated_at
   `).run(
+    userId,
     result.undertone,
     result.undertone_confidence,
     result.depth,
@@ -139,16 +150,16 @@ ${photoDescriptions}${shadeNotesContext}
     JSON.stringify(photoUrls)
   )
 
-  db.prepare("UPDATE shade_analyses SET is_current = 0 WHERE cosmetic_id IS NULL").run()
+  db.prepare("UPDATE shade_analyses SET is_current = 0 WHERE cosmetic_id IS NULL AND user_id = ?").run(userId)
 
   for (const analysis of result.shade_analyses) {
     const photoIdx = validPhotos.findIndex((p) => p.shades && p.shades.includes(analysis.shade))
     const photoUrl = photoIdx >= 0 ? validPhotos[photoIdx]?.url : validPhotos[0]?.url
 
     db.prepare(`
-      INSERT INTO shade_analyses (cosmetic_id, photo_url, ai_verdict, ai_analysis, is_current)
-      VALUES (NULL, ?, ?, ?, 1)
-    `).run(photoUrl || null, analysis.verdict, analysis.analysis)
+      INSERT INTO shade_analyses (user_id, cosmetic_id, photo_url, ai_verdict, ai_analysis, is_current)
+      VALUES (?, NULL, ?, ?, ?, 1)
+    `).run(userId, photoUrl || null, analysis.verdict, analysis.analysis)
   }
 
   return NextResponse.json({

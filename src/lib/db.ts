@@ -41,6 +41,13 @@ export function getDb(): Database.Database {
 
 function initSchema(db: Database.Database) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE,
+      display_name TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+
     CREATE TABLE IF NOT EXISTS cosmetics (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       brand TEXT NOT NULL,
@@ -75,6 +82,22 @@ function initSchema(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
 
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      user_id TEXT PRIMARY KEY,
+      skin_tone_description TEXT,
+      skin_type TEXT,
+      undertone TEXT,
+      undertone_confidence TEXT,
+      depth TEXT,
+      skin_concerns TEXT,
+      makeup_preferences TEXT,
+      suitable_foundation_shades TEXT,
+      color_analysis_summary TEXT,
+      analysis_photo_urls TEXT,
+      shade_notes TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+
     CREATE TABLE IF NOT EXISTS shade_analyses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       cosmetic_id INTEGER REFERENCES cosmetics(id) ON DELETE SET NULL,
@@ -90,7 +113,9 @@ function initSchema(db: Database.Database) {
   try { db.exec('ALTER TABLE cosmetics ADD COLUMN photo_urls TEXT') } catch {}
   try { db.exec('ALTER TABLE cosmetics ADD COLUMN sub_tags TEXT') } catch {}
   try { db.exec('ALTER TABLE cosmetics ADD COLUMN color_data TEXT') } catch {}
+  try { db.exec('ALTER TABLE cosmetics ADD COLUMN user_id TEXT') } catch {}
   try { db.exec('ALTER TABLE color_profile ADD COLUMN shade_notes TEXT') } catch {}
+  try { db.exec('ALTER TABLE shade_analyses ADD COLUMN user_id TEXT') } catch {}
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS advice_feedback (
@@ -101,6 +126,7 @@ function initSchema(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     )
   `)
+  try { db.exec('ALTER TABLE advice_feedback ADD COLUMN user_id TEXT') } catch {}
 
   const row = db.prepare('SELECT COUNT(*) as cnt FROM color_profile').get() as { cnt: number }
   if (row.cnt === 0) {

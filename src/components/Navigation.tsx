@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useSession, signOut } from 'next-auth/react'
 
 const navItems = [
   { href: '/', label: '化妝品庫', icon: '💄' },
-  { href: '/profile', label: '我的色彩', icon: '🎨' },
+  { href: '/profile', label: '膚況檔案', icon: '🧴' },
   { href: '/colors', label: '色彩統整', icon: '🌈' },
   { href: '/match', label: 'AI 搭配', icon: '✨' },
   { href: '/advice', label: '買前建議', icon: '🛍️' },
@@ -13,6 +14,9 @@ const navItems = [
 
 export default function Navigation() {
   const pathname = usePathname()
+  const { data: session } = useSession()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const displayName = (session?.user as any)?.displayName as string | null
 
   return (
     <>
@@ -20,10 +24,12 @@ export default function Navigation() {
       <aside className="hidden md:flex fixed inset-y-0 left-0 w-64 bg-white border-r border-blush-100 flex-col z-30">
         <div className="px-6 py-8">
           <h1 className="text-xl font-bold text-blush-700">
-            <span className="mr-2">🌸</span>
+            <span className="mr-2">💋</span>
             化妝品管理
           </h1>
-          <p className="text-xs text-nude-500 mt-1">你的個人美妝助手</p>
+          {displayName && (
+            <p className="text-sm text-nude-600 mt-1">嗨，{displayName} 👋</p>
+          )}
         </div>
 
         <nav className="flex-1 px-4 space-y-1">
@@ -46,8 +52,13 @@ export default function Navigation() {
           })}
         </nav>
 
-        <div className="px-6 py-4 text-xs text-nude-400">
-          管理你的彩妝，讓每天都美美的
+        <div className="px-6 py-4 border-t border-nude-100">
+          <button
+            onClick={() => signOut({ callbackUrl: '/login' })}
+            className="text-xs text-nude-400 hover:text-nude-600 transition-colors flex items-center gap-1.5"
+          >
+            <span>↩</span> 登出
+          </button>
         </div>
       </aside>
 

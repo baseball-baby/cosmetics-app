@@ -18,6 +18,7 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
   const [showScanner, setShowScanner] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [filling, setFilling] = useState(false)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -90,6 +91,27 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
     const data = await res.json()
     if (data.url) setPhotos((prev) => [...prev, data.url])
     setUploading(false)
+  }
+
+  async function handleAiFill() {
+    if (!form.brand.trim() || !form.name.trim()) {
+      alert('請先填寫品牌和產品名稱')
+      return
+    }
+    setFilling(true)
+    try {
+      const res = await fetch('/api/fill-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand: form.brand, name: form.name, category: form.category, hasPhotos: photos.length > 0 }),
+      })
+      const data = await res.json()
+      if (data.official_description) set('official_description', data.official_description)
+      if (data.official_positioning) set('official_positioning', data.official_positioning)
+      if (data.photo_url && photos.length === 0) setPhotos([data.photo_url])
+    } finally {
+      setFilling(false)
+    }
   }
 
   async function handleBarcode(barcode: string) {
@@ -306,9 +328,21 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
 
         {/* Official description */}
         <div className="space-y-3">
-          <div>
+          <div className="flex items-center justify-between">
             <label className="label mb-0">官方資訊</label>
-            <p className="text-xs text-nude-400 mt-0.5">儲存後 AI 會自動填入（若留空）</p>
+            <button
+              type="button"
+              onClick={handleAiFill}
+              disabled={filling}
+              className="btn-secondary text-xs flex items-center gap-1.5"
+            >
+              {filling ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
+                  填入中…
+                </>
+              ) : '✨ AI 幫我填入'}
+            </button>
           </div>
           <div>
             <label className="label">官方產品描述</label>

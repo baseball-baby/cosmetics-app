@@ -271,7 +271,7 @@ export default function ProfilePage() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-nude-900">我的色彩檔案 🎨</h1>
+        <h1 className="text-2xl font-bold text-nude-900">我的膚況檔案 🧴</h1>
         <p className="text-sm text-nude-500 mt-0.5">記錄你的膚色特徵，讓 AI 給你更準確的建議</p>
       </div>
 
@@ -354,7 +354,7 @@ export default function ProfilePage() {
         <div className="card p-6 text-center space-y-4 bg-gradient-to-br from-blush-50 to-rose-50">
           <div className="text-5xl">🎨</div>
           <div>
-            <p className="font-semibold text-nude-800">尚未建立色彩檔案</p>
+            <p className="font-semibold text-nude-800">尚未建立膚況檔案</p>
             <p className="text-sm text-nude-500 mt-1">完成皮膚調查，讓 AI 分析你的專屬色彩</p>
           </div>
           <button onClick={openSurvey} className="btn-primary">開始皮膚調查</button>
@@ -508,7 +508,7 @@ export default function ProfilePage() {
                 <p className="text-xs text-nude-500 mt-0.5">
                   {surveyStep === 1 && '告訴我們你的膚質和膚況'}
                   {surveyStep === 2 && '上傳照片，AI 幫你分析膚色'}
-                  {surveyStep === 3 && '你的色彩檔案已建立'}
+                  {surveyStep === 3 && '你的膚況檔案已建立'}
                 </p>
               </div>
               <button onClick={() => setShowSurvey(false)} className="text-nude-400 hover:text-nude-600 text-xl w-8 h-8 flex items-center justify-center">✕</button>
