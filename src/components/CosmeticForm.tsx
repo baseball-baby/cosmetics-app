@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Cosmetic, CATEGORIES } from '@/lib/types'
 import BarcodeScanner from './BarcodeScanner'
 import AutoResizeTextarea from './AutoResizeTextarea'
+import { ScanBarcode, Sparkles, Plus } from 'lucide-react'
 
 interface Props {
   initial?: Partial<Cosmetic>
@@ -22,7 +23,6 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // Autocomplete state
   const [brandSuggestions, setBrandSuggestions] = useState<string[]>([])
   const [productSuggestions, setProductSuggestions] = useState<{ name: string; category: string }[]>([])
   const [showBrandDrop, setShowBrandDrop] = useState(false)
@@ -127,9 +127,10 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
       if (data.found) {
         if (data.brand) set('brand', data.brand)
         if (data.name) set('name', data.name)
+        if (data.category) set('category', data.category)
         if (data.official_description) set('official_description', data.official_description)
       } else {
-        alert('找不到此條碼的產品資訊')
+        alert('找不到此條碼的產品資訊，請手動輸入')
       }
     } finally {
       setScanning(false)
@@ -183,63 +184,26 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Photo upload – multiple */}
-        <div className="space-y-2">
-          <label className="label">產品照片</label>
-          <div className="flex gap-2 flex-wrap">
-            {photos.map((url, i) => (
-              <div key={url} className="relative w-20 h-20 rounded-xl overflow-hidden bg-nude-100 group">
-                <Image src={url} alt={`photo ${i + 1}`} fill className="object-cover" />
-                <button
-                  type="button"
-                  onClick={() => setPhotos((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="absolute top-1 right-1 w-5 h-5 bg-black/60 text-white rounded-full text-xs items-center justify-center hidden group-hover:flex"
-                >
-                  ×
-                </button>
-                {i === 0 && (
-                  <span className="absolute bottom-0 left-0 right-0 text-center text-white text-[10px] bg-black/40 py-0.5">封面</span>
-                )}
-              </div>
-            ))}
 
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="w-20 h-20 rounded-xl border-2 border-dashed border-nude-300 hover:border-blush-400 flex flex-col items-center justify-center text-nude-400 hover:text-blush-500 transition-colors text-xs gap-1"
-            >
-              {uploading ? (
-                <div className="w-5 h-5 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <span className="text-xl">+</span>
-                  <span>新增</span>
-                </>
-              )}
-            </button>
-          </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-
-            className="hidden"
-            onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
-          />
-          <button
-            type="button"
-            onClick={() => setShowScanner(true)}
-            disabled={scanning}
-            className="btn-secondary text-xs flex items-center gap-1.5"
-          >
-            {scanning ? '查詢中…' : '📸 掃描條碼'}
-          </button>
-        </div>
-
-        {/* Required fields */}
+        {/* Brand + scan */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="label">品牌 *</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="label mb-0">品牌 *</label>
+              <button
+                type="button"
+                onClick={() => setShowScanner(true)}
+                disabled={scanning}
+                className="flex items-center gap-1 text-xs text-nude-500 hover:text-blush-600 transition-colors"
+              >
+                {scanning ? (
+                  <div className="w-3 h-3 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <ScanBarcode size={14} />
+                )}
+                {scanning ? '搜尋中…' : '掃條碼'}
+              </button>
+            </div>
             <div className="relative">
               <input
                 className={`input-field ${errors.brand ? 'border-red-400' : ''}`}
@@ -267,6 +231,7 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
             </div>
             {errors.brand && <p className="text-xs text-red-500 mt-1">{errors.brand}</p>}
           </div>
+
           <div>
             <label className="label">產品名稱 *</label>
             <div className="relative">
@@ -326,7 +291,7 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
           </div>
         </div>
 
-        {/* Official description */}
+        {/* Official info */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <label className="label mb-0">官方資訊</label>
@@ -341,7 +306,12 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
                   <div className="w-3 h-3 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
                   填入中…
                 </>
-              ) : '✨ AI 幫我填入'}
+              ) : (
+                <>
+                  <Sparkles size={13} />
+                  AI 幫我填入
+                </>
+              )}
             </button>
           </div>
           <div>
@@ -372,6 +342,49 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
             <label className="label">價格（NT$）</label>
             <input type="number" className="input-field" value={form.price} onChange={(e) => set('price', e.target.value)} placeholder="0" min="0" />
           </div>
+        </div>
+
+        {/* Photo – moved to bottom as optional */}
+        <div className="space-y-2">
+          <label className="label">產品照片 <span className="text-nude-400 font-normal text-xs">（選填，AI 填入會自動抓封面）</span></label>
+          <div className="flex gap-2 flex-wrap">
+            {photos.map((url, i) => (
+              <div key={url} className="relative w-20 h-20 rounded-xl overflow-hidden bg-nude-100 group">
+                <Image src={url} alt={`photo ${i + 1}`} fill className="object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setPhotos((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="absolute top-1 right-1 w-5 h-5 bg-black/60 text-white rounded-full text-xs items-center justify-center hidden group-hover:flex"
+                >
+                  ×
+                </button>
+                {i === 0 && (
+                  <span className="absolute bottom-0 left-0 right-0 text-center text-white text-[10px] bg-black/40 py-0.5">封面</span>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="w-20 h-20 rounded-xl border-2 border-dashed border-nude-300 hover:border-blush-400 flex flex-col items-center justify-center text-nude-400 hover:text-blush-500 transition-colors gap-1"
+            >
+              {uploading ? (
+                <div className="w-5 h-5 border-2 border-blush-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Plus size={18} />
+                  <span className="text-xs">新增</span>
+                </>
+              )}
+            </button>
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
+          />
         </div>
 
         <div className="flex gap-3 pt-2">

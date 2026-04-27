@@ -3,13 +3,14 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { Package2, UserRound, Palette, Wand2, ShoppingBag, LogOut } from 'lucide-react'
 
 const navItems = [
-  { href: '/', label: '化妝品庫', icon: '💄' },
-  { href: '/profile', label: '膚況檔案', icon: '🧴' },
-  { href: '/colors', label: '色彩統整', icon: '🌈' },
-  { href: '/match', label: 'AI 搭配', icon: '✨' },
-  { href: '/advice', label: '買前建議', icon: '🛍️' },
+  { href: '/', label: '化妝品庫', icon: Package2 },
+  { href: '/profile', label: '膚況檔案', icon: UserRound },
+  { href: '/colors', label: '色彩統整', icon: Palette },
+  { href: '/match', label: 'AI 搭配', icon: Wand2 },
+  { href: '/advice', label: '買前建議', icon: ShoppingBag },
 ]
 
 export default function Navigation() {
@@ -43,6 +44,7 @@ export default function Navigation() {
         <nav className="flex-1 px-4 space-y-1">
           {navItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
+            const Icon = item.icon
             return (
               <Link
                 key={item.href}
@@ -53,7 +55,7 @@ export default function Navigation() {
                     : 'text-nude-600 hover:bg-nude-50 hover:text-nude-800'
                 }`}
               >
-                <span className="text-lg">{item.icon}</span>
+                <Icon size={18} />
                 {item.label}
               </Link>
             )
@@ -65,7 +67,7 @@ export default function Navigation() {
             onClick={handleLogout}
             className="text-xs text-nude-400 hover:text-nude-600 transition-colors flex items-center gap-1.5"
           >
-            <span>↩</span> 登出
+            <LogOut size={13} /> 登出
           </button>
         </div>
       </aside>
@@ -74,15 +76,16 @@ export default function Navigation() {
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-blush-100 z-30 flex">
         {navItems.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
+          const Icon = item.icon
           return (
             <Link
               key={item.href}
               href={item.href}
               className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors ${
-                isActive ? 'text-blush-600' : 'text-nude-500'
+                isActive ? 'text-blush-600' : 'text-nude-400'
               }`}
             >
-              <span className="text-xl">{item.icon}</span>
+              <Icon size={20} />
               {item.label}
             </Link>
           )
