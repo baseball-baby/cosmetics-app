@@ -35,7 +35,10 @@ async function analyzeByVision(product: ProductRow): Promise<ColorData | null> {
           type: 'text',
           text: `這是「${product.brand} ${product.name}${product.shade_name ? ` / ${product.shade_name}` : ''}」的照片。
 請根據照片中實際看到的顏色分析（不要靠產品名稱猜測），回傳 JSON（繁體中文）：
-{"hex":"#XXXXXX","color_family":"${COLOR_FAMILIES} 其中一個","finish":"${FINISHES} 其中一個","is_expansion_color":true或false（亮/暖/淺色為true，深/冷色為false）,"description":"一句描述（15字內）"}
+{"hex":"#XXXXXX","color_family":"${COLOR_FAMILIES} 其中一個","finish":"${FINISHES} 其中一個","is_expansion_color":true或false,"description":"一句描述（15字內）"}
+
+is_expansion_color 判斷規則：只看顏色明度，與冷暖無關。淺色/明亮色為 true（膨脹），深色/暗色為 false（收縮）。
+
 只回傳 JSON。`,
         },
       ],
@@ -86,6 +89,8 @@ async function analyzeByText(products: ProductRow[]): Promise<Map<number, ColorD
       content: `根據以下搜尋資料分析每個產品的色彩（繁體中文）。若資料不足請誠實標記 description 為「資訊不足」。
 
 ${context}
+
+is_expansion_color 判斷規則：只看顏色明度，與冷暖無關。淺色/明亮色為 true（膨脹），深色/暗色為 false（收縮）。
 
 回傳 JSON：{"results":[{"id":數字,"hex":"#XXXXXX","color_family":"${COLOR_FAMILIES} 其中一個","finish":"${FINISHES} 其中一個","is_expansion_color":true/false,"description":"描述（15字內）"}]}
 只回傳 JSON。`,
