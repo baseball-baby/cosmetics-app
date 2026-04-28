@@ -4,11 +4,13 @@ import { getToken } from 'next-auth/jwt'
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Admin routes: require cosmetics_admin cookie (login page is exempt)
-  if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
-    const adminCookie = req.cookies.get('cosmetics_admin')?.value
-    if (adminCookie !== process.env.ADMIN_PASSWORD) {
-      return NextResponse.redirect(new URL('/admin/login', req.url))
+  // Admin routes: entirely separate auth (admin cookie), bypass NextAuth
+  if (pathname.startsWith('/admin')) {
+    if (pathname !== '/admin/login') {
+      const adminCookie = req.cookies.get('cosmetics_admin')?.value
+      if (adminCookie !== process.env.ADMIN_PASSWORD) {
+        return NextResponse.redirect(new URL('/admin/login', req.url))
+      }
     }
     return NextResponse.next()
   }
