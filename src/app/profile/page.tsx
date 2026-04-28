@@ -364,57 +364,66 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Brand shade table */}
+          {/* Brand shade cards */}
           {brandShadeTable.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-nude-600 mb-2">品牌色號對照表</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs min-w-[540px]">
-                  <thead>
-                    <tr className="bg-nude-50">
-                      <th className="text-left p-2 rounded-l-lg text-nude-600 whitespace-nowrap">品牌</th>
-                      <th className="text-left p-2 text-nude-600 whitespace-nowrap">推薦色號</th>
-                      <th className="text-left p-2 text-nude-600 whitespace-nowrap">備選</th>
-                      <th className="text-left p-2 text-nude-600 whitespace-nowrap">建議避開</th>
-                      <th className="text-left p-2 text-nude-600 whitespace-nowrap">你試過的</th>
-                      <th className="text-left p-2 rounded-r-lg text-nude-600">說明</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {brandShadeTable.map((entry, i) => {
-                      const tried = foundations.filter(f =>
-                        f.brand.trim().toLowerCase() === entry.brand.trim().toLowerCase() && f.shade_name
-                      )
-                      return (
-                        <tr key={i} className="border-t border-nude-100">
-                          <td className="p-2 font-semibold text-nude-800 whitespace-nowrap">{entry.brand}</td>
-                          <td className="p-2 font-medium text-emerald-700 whitespace-nowrap">{entry.recommended || '—'}</td>
-                          <td className="p-2 text-nude-600 whitespace-nowrap">{entry.alternative || '—'}</td>
-                          <td className="p-2 text-red-500 whitespace-nowrap">{entry.avoid || '—'}</td>
-                          <td className="p-2 whitespace-nowrap">
-                            {tried.length === 0 ? (
-                              <span className="text-nude-300">—</span>
-                            ) : (
-                              <div className="space-y-0.5">
-                                {tried.map((f, j) => (
-                                  <div key={j} className="flex items-center gap-1">
-                                    <span className="text-nude-700">{f.shade_name}</span>
-                                    {f.color_verdict && (
-                                      <span className={`text-xs font-medium ${f.color_verdict === '適合' ? 'text-emerald-600' : 'text-orange-500'}`}>
-                                        · {f.color_verdict}
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-2 text-nude-500">{entry.notes}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+              <p className="text-xs font-medium text-nude-600 mb-3">品牌色號對照表</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {brandShadeTable.map((entry, i) => {
+                  const tried = foundations.filter(f =>
+                    f.brand.trim().toLowerCase() === entry.brand.trim().toLowerCase() && f.shade_name
+                  )
+                  return (
+                    <div key={i} className="bg-nude-50 rounded-2xl p-4 space-y-3">
+                      {/* Brand name */}
+                      <p className="font-semibold text-nude-800 text-sm">{entry.brand}</p>
+
+                      {/* Shade rows */}
+                      <div className="space-y-1.5">
+                        {entry.recommended && (
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-xs text-nude-400 w-14 flex-shrink-0">推薦</span>
+                            <span className="text-sm font-medium text-emerald-700">{entry.recommended}</span>
+                          </div>
+                        )}
+                        {entry.alternative && (
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-xs text-nude-400 w-14 flex-shrink-0">備選</span>
+                            <span className="text-sm text-nude-600">{entry.alternative}</span>
+                          </div>
+                        )}
+                        {entry.avoid && (
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-xs text-nude-400 w-14 flex-shrink-0">避開</span>
+                            <span className="text-sm text-red-500">{entry.avoid}</span>
+                          </div>
+                        )}
+                        {tried.length > 0 && (
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-xs text-nude-400 w-14 flex-shrink-0">你試過</span>
+                            <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                              {tried.map((f, j) => (
+                                <span key={j} className="text-sm text-nude-700">
+                                  {f.shade_name}
+                                  {f.color_verdict && (
+                                    <span className={`ml-1 text-xs font-medium ${f.color_verdict === '適合' ? 'text-emerald-600' : 'text-orange-500'}`}>
+                                      · {f.color_verdict}
+                                    </span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Notes */}
+                      {entry.notes && (
+                        <p className="text-xs text-nude-400 leading-relaxed border-t border-nude-200 pt-2">{entry.notes}</p>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
 
               {/* Add brand */}
