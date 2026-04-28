@@ -17,7 +17,7 @@ interface TrialShade {
   brand: string
   product: string
   shade_name: string
-  verdict: ColorVerdict | null
+  verdicts: ColorVerdict[]
 }
 
 interface BrandShadeEntry {
@@ -33,7 +33,7 @@ type SurveyStep = 1 | 2 | 3 | 'done'
 const VERDICT_OPTIONS: ColorVerdict[] = ['適合', '偏黃', '偏深', '偏淺', '偏冷', '偏暖', '不適合']
 
 function newTrialShade(): TrialShade {
-  return { id: Math.random().toString(36).slice(2), brand: '', product: '', shade_name: '', verdict: null }
+  return { id: Math.random().toString(36).slice(2), brand: '', product: '', shade_name: '', verdicts: [] }
 }
 
 export default function ProfilePage() {
@@ -174,7 +174,7 @@ export default function ProfilePage() {
               name: ts.product.trim() || ts.brand.trim(),
               shade_name: ts.shade_name.trim() || null,
               category: '粉底/遮瑕',
-              color_verdict: ts.verdict || null,
+              color_verdict: ts.verdicts.length > 0 ? (ts.verdicts.join('、') as ColorVerdict) : null,
             }),
           })
           if (addRes.ok) added++
@@ -618,20 +618,28 @@ export default function ProfilePage() {
                           value={ts.shade_name}
                           onChange={e => setTrialShades(prev => prev.map((s, idx) => idx === i ? { ...s, shade_name: e.target.value } : s))} />
                         <div>
-                          <p className="text-xs text-nude-500 mb-1.5">試色結果</p>
+                          <p className="text-xs text-nude-500 mb-1.5">試色結果（可複選）</p>
                           <div className="flex flex-wrap gap-1.5">
-                            {VERDICT_OPTIONS.map(v => (
-                              <button key={v}
-                                onClick={() => setTrialShades(prev => prev.map((s, idx) =>
-                                  idx === i ? { ...s, verdict: s.verdict === v ? null : v } : s
-                                ))}
-                                className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${
-                                  ts.verdict === v
-                                    ? 'bg-blush-500 text-white border-blush-500'
-                                    : 'bg-white text-nude-600 border-nude-200 hover:border-blush-300'
-                                }`}
-                              >{v}</button>
-                            ))}
+                            {VERDICT_OPTIONS.map(v => {
+                              const selected = ts.verdicts.includes(v)
+                              return (
+                                <button key={v}
+                                  onClick={() => setTrialShades(prev => prev.map((s, idx) =>
+                                    idx === i ? {
+                                      ...s,
+                                      verdicts: selected
+                                        ? s.verdicts.filter(x => x !== v)
+                                        : [...s.verdicts, v],
+                                    } : s
+                                  ))}
+                                  className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${
+                                    selected
+                                      ? 'bg-blush-500 text-white border-blush-500'
+                                      : 'bg-white text-nude-600 border-nude-200 hover:border-blush-300'
+                                  }`}
+                                >{v}</button>
+                              )
+                            })}
                           </div>
                         </div>
                       </div>

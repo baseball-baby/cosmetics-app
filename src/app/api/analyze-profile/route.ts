@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { photos, trial_shades, user_brands } = body as {
     photos: Array<{ url: string; shades: string }>
-    trial_shades?: Array<{ brand: string; product: string; shade_name: string; verdict: string | null }>
+    trial_shades?: Array<{ brand: string; product: string; shade_name: string; verdicts: string[] }>
     user_brands?: string[]
   }
 
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
 
   // Only research shades the user explicitly marked as 適合 (have real shade names)
   const suitableShades = (trial_shades || []).filter(
-    ts => ts.verdict === '適合' && ts.brand.trim() && ts.shade_name.trim()
+    ts => ts.verdicts?.includes('適合') && ts.brand.trim() && ts.shade_name.trim()
   )
 
   // Run all Tavily searches in parallel
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
   const trialShadeCtx = (trial_shades || [])
     .filter(ts => ts.brand.trim())
     .map(ts =>
-      `- ${[ts.brand, ts.product, ts.shade_name].filter(Boolean).join(' ')}：使用者評為「${ts.verdict || '未評'}」`
+      `- ${[ts.brand, ts.product, ts.shade_name].filter(Boolean).join(' ')}：使用者評為「${ts.verdicts?.length > 0 ? ts.verdicts.join('、') : '未評'}」`
     ).join('\n')
 
   const hasPhotoShades = validPhotos.some(p => p.shades && p.shades.trim())
@@ -191,7 +191,7 @@ ${brandResearchCtx ? `品牌色號資料：\n${brandResearchCtx}\n` : ''}
       .filter(ts => ts.brand.trim())
       .map(ts => ({
         shade: [ts.brand.trim(), ts.product.trim(), ts.shade_name.trim()].filter(Boolean).join(' '),
-        verdicts: ts.verdict ? [ts.verdict] : [],
+        verdicts: ts.verdicts || [],
       }))
 
     const { data: existing } = await supabase
