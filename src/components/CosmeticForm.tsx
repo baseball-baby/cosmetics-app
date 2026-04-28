@@ -7,6 +7,7 @@ import { Cosmetic, CATEGORIES } from '@/lib/types'
 import BarcodeScanner from './BarcodeScanner'
 import AutoResizeTextarea from './AutoResizeTextarea'
 import { ScanBarcode, Sparkles, ImagePlus, X, Info } from 'lucide-react'
+import { compressImage } from '@/lib/compressImage'
 
 interface Props {
   initial?: Partial<Cosmetic>
@@ -127,12 +128,18 @@ export default function CosmeticForm({ initial, onSuccess }: Props) {
 
   async function handleUpload(file: File) {
     setUploading(true)
-    const fd = new FormData()
-    fd.append('file', file)
-    const res = await fetch('/api/upload', { method: 'POST', body: fd })
-    const data = await res.json()
-    if (data.url) setPhoto(data.url)
-    setUploading(false)
+    try {
+      const compressed = await compressImage(file)
+      const fd = new FormData()
+      fd.append('file', compressed)
+      const res = await fetch('/api/upload', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (data.url) setPhoto(data.url)
+    } catch {
+      alert('照片上傳失敗，請重試')
+    } finally {
+      setUploading(false)
+    }
   }
 
   async function handleAiFill() {

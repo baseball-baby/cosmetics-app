@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { ColorProfile, ColorVerdict, Cosmetic } from '@/lib/types'
 import AutoResizeTextarea from '@/components/AutoResizeTextarea'
 import { X, Plus, RotateCcw } from 'lucide-react'
+import { compressImage } from '@/lib/compressImage'
 
 interface PhotoEntry {
   url: string
@@ -108,13 +109,23 @@ export default function ProfilePage() {
 
   async function handleAddPhoto(file: File) {
     const preview = URL.createObjectURL(file)
-    const fd = new FormData()
-    fd.append('file', file)
     setUploadingPhoto(true)
-    const res = await fetch('/api/upload', { method: 'POST', body: fd })
-    const data = await res.json()
-    setPhotos(prev => [...prev, { url: data.url, shades: '', preview }])
-    setUploadingPhoto(false)
+    try {
+      const compressed = await compressImage(file)
+      const fd = new FormData()
+      fd.append('file', compressed)
+      const res = await fetch('/api/upload', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (data.url) {
+        setPhotos(prev => [...prev, { url: data.url, shades: '', preview }])
+      } else {
+        alert('照片上傳失敗，請重試')
+      }
+    } catch {
+      alert('照片上傳失敗，請重試')
+    } finally {
+      setUploadingPhoto(false)
+    }
   }
 
   function loadExistingPhotos() {
