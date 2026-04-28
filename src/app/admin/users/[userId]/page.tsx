@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { useParams } from 'next/navigation'
 import { CATEGORY_EMOJIS } from '@/lib/types'
 
 interface Cosmetic {
@@ -45,9 +46,9 @@ interface Feedback {
 
 type Tab = 'cosmetics' | 'profile' | 'ai'
 
-export default function AdminUserPage({ params }: { params: Promise<{ userId: string }> }) {
-  const { userId } = use(params)
-  const decodedId = decodeURIComponent(userId)
+export default function AdminUserPage() {
+  const params = useParams()
+  const decodedId = decodeURIComponent(params.userId as string)
 
   const [tab, setTab] = useState<Tab>('cosmetics')
   const [loading, setLoading] = useState(true)
