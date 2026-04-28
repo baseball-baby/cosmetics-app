@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/db'
+import { getSessionUser } from '@/lib/getUser'
 
 export async function POST(req: NextRequest) {
-  const userId = req.cookies.get('cosmetics_user')?.value
+  const userId = await getSessionUser()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { feedback } = await req.json() as { feedback: string }

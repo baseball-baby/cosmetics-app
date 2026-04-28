@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import Navigation from '@/components/Navigation'
+import SessionProviderWrapper from '@/components/SessionProviderWrapper'
 
 export const metadata: Metadata = {
   title: '我的化妝品管理',
@@ -14,12 +15,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-TW">
       <body className="antialiased">
-        <Navigation />
-        <main className="pb-20 md:pb-0 md:pl-64 min-h-screen">
-          <div className="max-w-5xl mx-auto px-4 py-6">
-            {children}
-          </div>
-        </main>
+        <SessionProviderWrapper>
+          <Navigation />
+          <main className="pb-20 md:pb-0 md:pl-64 min-h-screen">
+            <div className="max-w-5xl mx-auto px-4 py-6">
+              {children}
+            </div>
+          </main>
+        </SessionProviderWrapper>
       </body>
     </html>
   )

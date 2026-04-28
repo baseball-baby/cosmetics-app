@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/db'
+import { getSessionUser } from '@/lib/getUser'
 
 const BLANK_PROFILE = {
   skin_tone_description: null,
@@ -17,7 +18,7 @@ const BLANK_PROFILE = {
 }
 
 export async function GET(req: NextRequest) {
-  const userId = req.cookies.get('cosmetics_user')?.value
+  const userId = await getSessionUser()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: row } = await supabase
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const userId = req.cookies.get('cosmetics_user')?.value
+  const userId = await getSessionUser()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
@@ -55,7 +56,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const userId = req.cookies.get('cosmetics_user')?.value
+  const userId = await getSessionUser()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as { shade_notes?: unknown[]; brand_shade_table?: unknown[] }

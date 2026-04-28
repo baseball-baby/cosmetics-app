@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
+import { getSessionUser } from '@/lib/getUser'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: NextRequest) {
-  const userId = req.cookies.get('cosmetics_user')?.value
+  const userId = await getSessionUser()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { situation, extra_notes } = await req.json()

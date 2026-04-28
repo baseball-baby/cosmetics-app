@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
+import { getSessionUser } from '@/lib/getUser'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -59,7 +60,7 @@ ${existingLine}規則：優先沿用已有標籤，語意相同或高度相近�
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const userId = _req.cookies.get('cosmetics_user')?.value
+  const userId = await getSessionUser()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: row, error } = await supabase
@@ -75,7 +76,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const userId = req.cookies.get('cosmetics_user')?.value
+  const userId = await getSessionUser()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const id = Number(params.id)
@@ -123,7 +124,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const userId = _req.cookies.get('cosmetics_user')?.value
+  const userId = await getSessionUser()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: row } = await supabase

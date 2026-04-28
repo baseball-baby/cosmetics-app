@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/db'
 import type { ShadeNote } from '@/lib/types'
+import { getSessionUser } from '@/lib/getUser'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -61,7 +62,7 @@ function buildProfileContext(profile: UserProfile | undefined): string {
 }
 
 export async function POST(req: NextRequest) {
-  const userId = req.cookies.get('cosmetics_user')?.value
+  const userId = await getSessionUser()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as {
@@ -215,7 +216,7 @@ ${searchContext || '（無搜尋結果）'}
 }
 
 export async function PUT(req: NextRequest) {
-  const userId = req.cookies.get('cosmetics_user')?.value
+  const userId = await getSessionUser()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { question, ai_answer, user_correction } = await req.json() as {

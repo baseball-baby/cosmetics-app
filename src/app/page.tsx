@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { Cosmetic, CATEGORIES, CATEGORY_EMOJIS } from '@/lib/types'
 import CosmeticCard from '@/components/CosmeticCard'
@@ -23,6 +23,11 @@ export default function HomePage() {
   const [showStats, setShowStats] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [subTag, setSubTag] = useState('')
+  const [showMigrate, setShowMigrate] = useState(false)
+  const [oldName, setOldName] = useState('')
+  const [migrating, setMigrating] = useState(false)
+  const [migrateMsg, setMigrateMsg] = useState<string | null>(null)
+  const allFetched = useRef(false)
 
   // Reset sub-tag when category changes
   useEffect(() => { setSubTag('') }, [category])
@@ -58,7 +63,13 @@ export default function HomePage() {
   useEffect(() => {
     fetch('/api/cosmetics?sort=created_at&order=DESC')
       .then((r) => r.json())
-      .then(setAllCosmetics)
+      .then((data) => {
+        setAllCosmetics(data)
+        if (!allFetched.current) {
+          allFetched.current = true
+          if (data.length === 0) setShowMigrate(true)
+        }
+      })
   }, [])
 
   useEffect(() => {
@@ -83,6 +94,26 @@ export default function HomePage() {
     count: allCosmetics.filter((c) => c.category === cat).length,
   })).filter((x) => x.count > 0)
 
+  async function handleMigrate() {
+    if (!oldName.trim()) return
+    setMigrating(true)
+    const res = await fetch('/api/migrate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldName: oldName.trim() }),
+    })
+    const data = await res.json()
+    setMigrating(false)
+    if (res.ok) {
+      setMigrateMsg(`成功匯入 ${data.migrated} 件化妝品！`)
+      setTimeout(() => { setShowMigrate(false); window.location.reload() }, 1500)
+    } else if (data.error === 'no_data') {
+      setMigrateMsg('找不到這個名字的資料，請確認一下')
+    } else {
+      setMigrateMsg('匯入失敗，請再試一次')
+    }
+  }
+
   function handleModalDelete(id: number | string) {
     setCosmetics((prev) => prev.filter((c) => c.id !== id))
     setAllCosmetics((prev) => prev.filter((c) => c.id !== id))
@@ -98,6 +129,39 @@ export default function HomePage() {
           onDelete={handleModalDelete}
         />
       )}
+      {/* Migration banner */}
+      {showMigrate && (
+        <div className="bg-blush-50 border border-blush-200 rounded-2xl p-4 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium text-nude-800">之前有用過這個 app 嗎？</p>
+              <p className="text-xs text-nude-500 mt-0.5">輸入舊的名字來匯入你的資料</p>
+            </div>
+            <button onClick={() => setShowMigrate(false)} className="text-nude-400 hover:text-nude-600 text-xs flex-shrink-0">我是新用戶</button>
+          </div>
+          {migrateMsg ? (
+            <p className="text-sm text-blush-700 font-medium">{migrateMsg}</p>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                className="input-field flex-1 text-sm py-2"
+                placeholder="你之前的名字"
+                value={oldName}
+                onChange={(e) => setOldName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleMigrate()}
+              />
+              <button
+                onClick={handleMigrate}
+                disabled={migrating || !oldName.trim()}
+                className="btn-primary text-sm px-4 py-2"
+              >
+                {migrating ? '匯入中…' : '匯入'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useSession, signOut } from 'next-auth/react'
 import { Package2, UserRound, Palette, Wand2, ShoppingBag, LogOut } from 'lucide-react'
 
 const navItems = [
@@ -15,16 +15,11 @@ const navItems = [
 
 export default function Navigation() {
   const pathname = usePathname()
-  const [displayName, setDisplayName] = useState<string | null>(null)
-
-  useEffect(() => {
-    const match = document.cookie.match(/(?:^|;\s*)cosmetics_user=([^;]+)/)
-    if (match) setDisplayName(decodeURIComponent(match[1]))
-  }, [])
+  const { data: session } = useSession()
+  const displayName = session?.user?.name || session?.user?.email || null
 
   async function handleLogout() {
-    await fetch('/api/user', { method: 'DELETE' })
-    window.location.href = '/login'
+    await signOut({ callbackUrl: '/login' })
   }
 
   return (

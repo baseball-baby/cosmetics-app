@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getToken } from 'next-auth/jwt'
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // Admin routes: require cosmetics_admin cookie (login page is exempt)
@@ -12,9 +13,9 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  // Regular routes: require cosmetics_user cookie
-  const user = req.cookies.get('cosmetics_user')?.value
-  if (!user && pathname !== '/login') {
+  // Regular routes: require NextAuth session
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
+  if (!token && pathname !== '/login') {
     return NextResponse.redirect(new URL('/login', req.url))
   }
   return NextResponse.next()

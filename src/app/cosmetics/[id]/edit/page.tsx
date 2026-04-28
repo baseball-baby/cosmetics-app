@@ -1,13 +1,14 @@
 import { notFound } from 'next/navigation'
-import { cookies } from 'next/headers'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { supabase } from '@/lib/db'
 import { Cosmetic } from '@/lib/types'
 import CosmeticForm from '@/components/CosmeticForm'
 import Link from 'next/link'
 
 export default async function EditCosmeticPage({ params }: { params: { id: string } }) {
-  const cookieStore = cookies()
-  const userId = cookieStore.get('cosmetics_user')?.value
+  const session = await getServerSession(authOptions)
+  const userId = session?.user?.email
 
   if (!userId) notFound()
 
