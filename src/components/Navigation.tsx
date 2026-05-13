@@ -27,9 +27,9 @@ export default function Navigation() {
       {/* Desktop sidebar */}
       <aside className="hidden md:flex fixed inset-y-0 left-0 w-64 bg-white border-r border-blush-100 flex-col z-30">
         <div className="px-6 py-8">
-          <h1 className="text-xl font-bold text-blush-700">
+          <h1 className="text-xl font-bold font-heading text-blush-500">
             <span className="mr-2">💋</span>
-            化妝品管理
+            Pouchy
           </h1>
           {displayName && (
             <p className="text-sm text-nude-600 mt-1">嗨，{displayName} 👋</p>

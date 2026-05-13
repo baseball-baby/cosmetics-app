@@ -17,7 +17,7 @@ export default function ExpiryBadge({ expiryDate }: Props) {
 
   if (days < 0) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 font-medium">
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-blush-100 text-blush-700 border border-blush-200 font-medium">
         ⚠️ 已過期
       </span>
     )
@@ -25,16 +25,16 @@ export default function ExpiryBadge({ expiryDate }: Props) {
 
   if (days <= 30) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 font-medium">
-        🔴 {days} 天後到期
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-blush-50 text-blush-600 border border-blush-200 font-medium">
+        🌸 {days} 天後到期
       </span>
     )
   }
 
   if (days <= 60) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 border border-orange-200 font-medium">
-        🟠 {days} 天後到期
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-nude-100 text-nude-500 border border-nude-200 font-medium">
+        🌷 {days} 天後到期
       </span>
     )
   }
