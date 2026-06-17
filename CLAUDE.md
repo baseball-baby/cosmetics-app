@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
@@ -63,3 +65,65 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+## Project: Pouchy
+
+美妝保養品管理 App。Next.js 14 App Router + Supabase + Anthropic Claude API，部署在 Vercel。
+
+### Commands
+
+```bash
+npm run dev      # local dev server (localhost:3000)
+npm run build    # production build (run before pushing to catch TS errors)
+npm run lint     # ESLint
+```
+
+No test suite exists.
+
+### Environment Variables
+
+Required in `.env.local` (see Vercel dashboard for production values):
+- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — database + storage
+- `ANTHROPIC_API_KEY` — Claude API
+- `TAVILY_API_KEY` — web search for brand shade lookup
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — NextAuth Google OAuth
+- `NEXTAUTH_SECRET` / `NEXTAUTH_URL` — NextAuth session
+- `ADMIN_PASSWORD` — admin backend cookie auth
+
+### Architecture
+
+**Auth (two separate systems):**
+- Regular users: NextAuth.js (`src/lib/auth.ts`) with Google OAuth. Session read via `getSessionUser()` (`src/lib/getUser.ts`) in all API routes. `user_id` = Google email.
+- Admin: separate cookie `cosmetics_admin` checked against `ADMIN_PASSWORD` env var. Admin routes live under `/admin` with their own standalone layout (no Navigation).
+- Middleware (`src/middleware.ts`): admin routes exit early (bypass NextAuth), regular routes check NextAuth JWT token.
+
+**Database (Supabase):**
+- `src/lib/db.ts` exports a lazy singleton `supabase` client using service role key (server-side only).
+- Key tables: `cosmetics`, `user_profiles`, `shade_analyses`, `advice_feedback`.
+- `user_id` column is the Google email string across all tables.
+
+**API Routes (`src/app/api/`):**
+- All user-facing routes call `await getSessionUser()` at the top; return 401 if null.
+- AI routes use `@anthropic-ai/sdk` with model `claude-sonnet-4-20250514`.
+- `scan/` — barcode → product lookup; `auto-tag/` — AI sub-tag generation; `fill-description/` — AI product description fill; `analyze-profile/` — full skin tone analysis from photos + shade notes; `color-catalog/` — per-cosmetic color data with vision AI; `advice/` — purchase recommendation; `ai-match/` — outfit/look matching; `lookup-brand-shade/` — Tavily search + Claude for brand shade table.
+- `upload/` — uploads to Supabase Storage. Client-side image compression happens before upload via `src/lib/compressImage.ts` (max 1600px, JPEG 82%) to stay under Vercel's 4.5MB body limit.
+
+**Pages:**
+- `/` — cosmetics library with filter/sort/search
+- `/profile` — skin profile + color analysis + brand shade table
+- `/colors` — color catalog per cosmetic
+- `/match` — AI outfit matching
+- `/advice` — AI purchase advice
+- `/cosmetics/[id]` — detail view; `/cosmetics/[id]/edit` — server component that checks session before rendering form
+
+**Design System:**
+- Tailwind with custom `blush` (primary #FF2C5D rose) and `nude` (secondary #3D2535 dark plum) color scales. Both scales are remapped from the originals; class names throughout the codebase use these names.
+- Fonts loaded via `next/font/google`: Plus Jakarta Sans (`--font-heading`), Noto Sans TC (`--font-body`), DM Mono (`--font-mono`).
+- Component classes defined in `src/app/globals.css`: `.btn-primary`, `.btn-secondary`, `.card`, `.input-field`, `.pill`, `.pill-active`, `.pill-inactive`.
+
+**Key types (`src/lib/types.ts`):**
+- `Cosmetic` — main product record; `ColorData` — per-product color analysis (JSON stored in `color_data` column); `ShadeNote` — trial shade with `verdicts: ColorVerdict[]`; `ColorProfile` — user skin profile.
+- `color_verdict` DB column stores multiple verdicts joined with `、` (e.g. `偏深、偏黃`).
+- `brand_shade_table` and `shade_notes` stored as JSON strings in `user_profiles`.
